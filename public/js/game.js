@@ -67,7 +67,12 @@ envLoader.load('https://threejs.org/examples/models/gltf/LittlestTokyo.glb', (gl
     // Align with ground - The model origin is usually at center, so we might need adjustment.
     // Littlest Tokyo is a diorama, so we scale it up.
     model.position.set(0, 0, 0);
-    model.scale.set(0.1, 0.1, 0.1);
+    model.scale.set(1.0, 1.0, 1.0);
+
+    // Auto-Ground: Measure model and place on floor
+    const box = new THREE.Box3().setFromObject(model);
+    model.position.y = -box.min.y; // Shift up by the amount it's below zero
+
     scene.add(model);
 
     // Play Animations (The Train!)
