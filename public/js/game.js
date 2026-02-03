@@ -52,45 +52,61 @@ scene.add(dirLight);
 // PHYSICS WORLD
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
 
-// ENVIRONMENT (GLTF CITY)
-// 1. Create a Fallback Visual Ground (So it's never just black)
-const fbGeo = new THREE.PlaneGeometry(100, 100);
-const fbMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 });
-const fallbackGround = new THREE.Mesh(fbGeo, fbMat);
+// ENVIRONMENT (PROCEDURAL CITY - FALLBACK)
+function createProceduralCity() {
+    // 1. Ground - Concrete
+    const groundGeo = new THREE.PlaneGeometry(100, 100);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -1;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Grid Helper for "Tron" look
+    const grid = new THREE.GridHelper(100, 50, 0x444444, 0x111111);
+    grid.position.y = -0.99;
+    scene.add(grid);
+
+    // 2. Random Buildings
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x34495e, roughness: 0.2 });
+
+    for (let i = 0; i < 40; i++) {
+        const w = Math.random() * 4 + 2;
+        const h = Math.random() * 8 + 4;
+        const d = Math.random() * 4 + 2;
+
+        const x = (Math.random() - 0.5) * 60;
+        const z = (Math.random() - 0.5) * 60;
+
+        // Keep spawn clear
+        if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
+
+        // Visual
+        const mesh = new THREE.Mesh(boxGeo, boxMat);
+        mesh.position.set(x, h / 2 - 1, z);
+        mesh.scale.set(w, h, d);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+
+        // Physics
+        const body = new CANNON.Body({
+            mass: 0,
+            position: new CANNON.Vec3(x, h / 2 - 1, z),
+            shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2))
+        });
+        world.addBody(body);
+    }
+}
+createProceduralCity();
+
+// Fallback aiming object (The ground itself)
+const fallbackGround = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial({ visible: false }));
 fallbackGround.rotation.x = -Math.PI / 2;
-fallbackGround.position.y = -1.05; // Slightly below GLTF floor
-fallbackGround.receiveShadow = true;
 scene.add(fallbackGround);
 
-const envLoader = new GLTFLoader();
-// Using direct RAW GitHub URL for better availability
-envLoader.load(
-    'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/Collision-world.glb',
-    (gltf) => {
-        const model = gltf.scene;
-        model.scale.set(0.5, 0.5, 0.5);
-        model.position.y = -1;
-
-        model.traverse(o => {
-            if (o.isMesh) {
-                o.castShadow = true;
-                o.receiveShadow = true;
-                if (o.material) o.material.side = THREE.DoubleSide;
-            }
-        });
-        scene.add(model);
-        console.log("Environment loaded successfully");
-        // Optional: Hide fallback if success, or keep it as base
-        // fallbackGround.visible = false; 
-    },
-    undefined, // onProgress
-    (error) => {
-        console.error("An error happened loading the environment:", error);
-        // Fallback: Add some simple boxes if env fails
-        const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), fbMat);
-        box.position.set(5, 0, 5); scene.add(box);
-    }
-);
 
 // PHYSICS (Invisible Ground Plane)
 const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), position: new CANNON.Vec3(0, -1, 0) });
