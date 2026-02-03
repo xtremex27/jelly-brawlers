@@ -13,41 +13,10 @@ const mouseWorldPos = new THREE.Vector3();
 
 // ... (Utils same as before) ...
 // UTILS
-function getDungeonTexture() {
-    const s = 1024, c = document.createElement('canvas'); c.width = s; c.height = s;
-    const ctx = c.getContext('2d');
-
-    // Background Dark Stone
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(0, 0, s, s);
-
-    // Grid Lines (Tiles)
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    const step = s / 8;
-    for (let i = 0; i <= s; i += step) {
-        ctx.moveTo(i, 0); ctx.lineTo(i, s);
-        ctx.moveTo(0, i); ctx.lineTo(s, i);
-    }
-    ctx.stroke();
-
-    // Noise/Detail
-    for (let i = 0; i < 5000; i++) {
-        ctx.fillStyle = Math.random() > 0.5 ? '#222' : '#111';
-        ctx.fillRect(Math.random() * s, Math.random() * s, 4, 4);
-    }
-
-    const t = new THREE.CanvasTexture(c);
-    t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(20, 20); // Repeat for large floor
-    return t;
-}
-const dungeonTex = getDungeonTexture();
 const mats = {
     p: new THREE.MeshPhysicalMaterial({ color: 0xeeeeee, roughness: 0.8 }), // Player placeholder
     w: new THREE.MeshStandardMaterial({ color: 0xffffff, map: null }),      // Weapon placeholder
-    g: new THREE.MeshStandardMaterial({ map: dungeonTex, roughness: 0.9, metalness: 0.1 }) // Ground
+    g: new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.9 })  // Fallback ground
 };
 
 
