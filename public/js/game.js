@@ -139,6 +139,7 @@ class Character {
         } else { this.mesh.position.set(startPos.x, 0, startPos.z); }
         scene.add(this.mesh);
         this.atkStart = 0; this.isAttacking = false; this.originalColor = new THREE.Color(this.colorVal);
+        this.lastJump = 0; // Fix: Jump Cooldown
     }
     buildBody(type) {
         const torso = new THREE.Mesh(new RoundedBoxGeometry(0.85, 0.8, 0.7, 4, 0.15), this.mat); torso.position.y = 0.2; torso.castShadow = true; this.mesh.add(torso);
@@ -157,101 +158,122 @@ class Character {
         if (this.isDead) return;
         if (!this.remoteId) this.mesh.position.copy(this.body.position);
 
+        // Fix: Velocity Cap (Anti-Speed Hack)
+        const maxSpeed = 20;
+        if (this.body && this.body.velocity.length() > maxSpeed) {
+            const v = this.body.velocity;
+            v.scale(maxSpeed / v.length(), v);
+        }
+
         let inputX = 0, inputZ = 0;
-        if (this.isBot && playerTarget) {
-            const dx = playerTarget.x - this.body.position.x, dz = playerTarget.z - this.body.position.z; const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist < 15 && dist > 1.1) { inputX = dx / dist; inputZ = dz / dist; }
-            if (dist < 2.0 && !this.isAttacking && Math.random() < 0.02) this.attack([player]);
-            this.mesh.lookAt(playerTarget.x, this.mesh.position.y, playerTarget.z);
-        }
-        if (this.isBot) { this.body.velocity.x = inputX * 3.5; this.body.velocity.z = inputZ * 3.5; }
-        else if (!this.remoteId && gameState === 'playing') { this.body.velocity.x *= 0.9; this.body.velocity.z *= 0.9; }
-
-        let speed = 0;
-        if (!this.remoteId) { const v = this.body.velocity; speed = Math.sqrt(v.x ** 2 + v.z ** 2); } else { speed = 5; } // Fake remote speed
-
-        if (this.isAttacking) {
-            const prog = (Date.now() - this.atkStart) / 300; if (prog >= 1) this.isAttacking = false;
-            else { this.mesh.children[0].rotation.y += 0.8; this.armR.rotation.x = -2.0; }
-        } else { this.mesh.children[0].rotation.y = THREE.MathUtils.lerp(this.mesh.children[0].rotation.y, 0, 0.2); this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, 0, 0.1); }
-
-        if (gameState === 'playing' && speed > 0.5 && !this.isBot && !this.remoteId) {
-            const v = this.body.velocity; const angle = Math.atan2(v.x, v.z);
-            this.mesh.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle), 0.2);
-        }
-
-        if (speed > 0.5) {
-            const w = time * 15;
-            this.legL.rotation.x = Math.sin(w) * 0.8; this.legR.rotation.x = Math.sin(w + Math.PI) * 0.8;
-            this.armL.rotation.x = Math.sin(w + Math.PI) * 0.8; this.armR.rotation.x = Math.sin(w) * 0.8;
-            this.mesh.children[0].position.y = 0.2 + Math.abs(Math.sin(w)) * 0.05;
-        } else {
-            this.legL.rotation.x = 0; this.legR.rotation.x = 0; if (!this.isAttacking && !this.weapon) this.armR.rotation.x = 0; this.armL.rotation.x = 0;
-            this.mesh.children[0].position.y = 0.2;
-        }
+        // ... (rest of update) ...
     }
-    takeHit(forceVec, dmg = 1) {
-        if (this.isDead || this.remoteId) return; this.hp -= dmg;
-        this.mat.color.setHex(0xFFFFFF); setTimeout(() => this.mat.color.copy(this.originalColor), 100);
-        this.body.applyImpulse(forceVec, this.body.position);
-        if (!this.isBot) { const pct = (this.hp / this.maxHp) * 100; document.getElementById('health-bar-fill').style.width = pct + '%'; }
-        if (this.hp <= 0) this.die();
-    }
-    die() {
-        this.isDead = true; if (this.body) { this.body.velocity.set(0, 15, 0); this.body.collisionFilterMask = 0; }
-        if (this.isBot && player) player.gainXP(50);
-        if (this.weapon) this.weapon.drop();
-        setTimeout(() => {
-            scene.remove(this.mesh); if (this.body) world.removeBody(this.body);
-            if (!this.remoteId && !this.isBot) location.reload();
-        }, 2000);
-    }
-    gainXP(amount) {
-        this.xp += amount; const maxXP = this.level * 100; const pct = Math.min((this.xp / maxXP) * 100, 100);
-        document.getElementById('xp-bar-fill').style.width = pct + '%';
-        if (this.xp >= maxXP) {
-            this.level++; this.xp = 0; this.maxHp++; this.hp = this.maxHp;
-            document.getElementById('xp-level').innerText = 'LVL ' + this.level; document.getElementById('health-bar-fill').style.width = '100%'; document.getElementById('xp-bar-fill').style.width = '0%';
-            this.mat.emissive.setHex(0xffff00); setTimeout(() => this.mat.emissive.setHex(0x000000), 500);
-        }
-    }
-    attack(targetList) {
-        if (this.isAttacking || this.isDead) return; this.isAttacking = true; this.atkStart = Date.now();
-        if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
-
-        // Fix: Stop current momentum before lunging (Prevents Speed Hack)
-        if (this.body) {
-            this.body.velocity.x = 0; this.body.velocity.z = 0;
-            const f = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion);
-            this.body.applyImpulse(new CANNON.Vec3(f.x * 15, 0, f.z * 15));
-        }
-
-        const range = this.weapon ? 4.0 : 2.5; const dmg = this.weapon ? 2.5 : 1; const knockback = this.weapon ? 60 : 30;
-        if (targetList) {
-            targetList.forEach(foe => {
-                if (foe === this || foe.isDead) return;
-                if (this.mesh.position.distanceTo(foe.mesh.position) < range) {
-                    const k = new THREE.Vector3().subVectors(foe.mesh.position, this.mesh.position).normalize();
-                    const force = new CANNON.Vec3(k.x * knockback, 10, k.z * knockback);
-
-                    // Local Hit
-                    if (!foe.remoteId) {
-                        foe.takeHit(force, dmg);
-                    }
-                    // Remote Hit
-                    else if (socket) {
-                        socket.emit('hitPlayer', { targetId: foe.remoteId, damage: dmg });
-                    }
-                }
-            });
-        }
-    }
+    // ...
     jump() {
         if (gameState !== 'playing') return; // Fix: No lobby flight
-        if (this.body && Math.abs(this.body.velocity.y) < 0.1) { // Fix: Stricter jump check
-            this.body.velocity.y = 8; // Slightly higher jump
+        // Fix: Jump Cooldown & Stricter Ground Check
+        if (Date.now() - this.lastJump < 800) return;
+
+        if (this.body && Math.abs(this.body.velocity.y) < 0.2) {
+            this.body.velocity.y = 8;
+            this.lastJump = Date.now();
         }
     }
+}
+if (this.isBot && playerTarget) {
+    const dx = playerTarget.x - this.body.position.x, dz = playerTarget.z - this.body.position.z; const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < 15 && dist > 1.1) { inputX = dx / dist; inputZ = dz / dist; }
+    if (dist < 2.0 && !this.isAttacking && Math.random() < 0.02) this.attack([player]);
+    this.mesh.lookAt(playerTarget.x, this.mesh.position.y, playerTarget.z);
+}
+if (this.isBot) { this.body.velocity.x = inputX * 3.5; this.body.velocity.z = inputZ * 3.5; }
+else if (!this.remoteId && gameState === 'playing') { this.body.velocity.x *= 0.9; this.body.velocity.z *= 0.9; }
+
+let speed = 0;
+if (!this.remoteId) { const v = this.body.velocity; speed = Math.sqrt(v.x ** 2 + v.z ** 2); } else { speed = 5; } // Fake remote speed
+
+if (this.isAttacking) {
+    const prog = (Date.now() - this.atkStart) / 300; if (prog >= 1) this.isAttacking = false;
+    else { this.mesh.children[0].rotation.y += 0.8; this.armR.rotation.x = -2.0; }
+} else { this.mesh.children[0].rotation.y = THREE.MathUtils.lerp(this.mesh.children[0].rotation.y, 0, 0.2); this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, 0, 0.1); }
+
+if (gameState === 'playing' && speed > 0.5 && !this.isBot && !this.remoteId) {
+    const v = this.body.velocity; const angle = Math.atan2(v.x, v.z);
+    this.mesh.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle), 0.2);
+}
+
+if (speed > 0.5) {
+    const w = time * 15;
+    this.legL.rotation.x = Math.sin(w) * 0.8; this.legR.rotation.x = Math.sin(w + Math.PI) * 0.8;
+    this.armL.rotation.x = Math.sin(w + Math.PI) * 0.8; this.armR.rotation.x = Math.sin(w) * 0.8;
+    this.mesh.children[0].position.y = 0.2 + Math.abs(Math.sin(w)) * 0.05;
+} else {
+    this.legL.rotation.x = 0; this.legR.rotation.x = 0; if (!this.isAttacking && !this.weapon) this.armR.rotation.x = 0; this.armL.rotation.x = 0;
+    this.mesh.children[0].position.y = 0.2;
+}
+    }
+takeHit(forceVec, dmg = 1) {
+    if (this.isDead || this.remoteId) return; this.hp -= dmg;
+    this.mat.color.setHex(0xFFFFFF); setTimeout(() => this.mat.color.copy(this.originalColor), 100);
+    this.body.applyImpulse(forceVec, this.body.position);
+    if (!this.isBot) { const pct = (this.hp / this.maxHp) * 100; document.getElementById('health-bar-fill').style.width = pct + '%'; }
+    if (this.hp <= 0) this.die();
+}
+die() {
+    this.isDead = true; if (this.body) { this.body.velocity.set(0, 15, 0); this.body.collisionFilterMask = 0; }
+    if (this.isBot && player) player.gainXP(50);
+    if (this.weapon) this.weapon.drop();
+    setTimeout(() => {
+        scene.remove(this.mesh); if (this.body) world.removeBody(this.body);
+        if (!this.remoteId && !this.isBot) location.reload();
+    }, 2000);
+}
+gainXP(amount) {
+    this.xp += amount; const maxXP = this.level * 100; const pct = Math.min((this.xp / maxXP) * 100, 100);
+    document.getElementById('xp-bar-fill').style.width = pct + '%';
+    if (this.xp >= maxXP) {
+        this.level++; this.xp = 0; this.maxHp++; this.hp = this.maxHp;
+        document.getElementById('xp-level').innerText = 'LVL ' + this.level; document.getElementById('health-bar-fill').style.width = '100%'; document.getElementById('xp-bar-fill').style.width = '0%';
+        this.mat.emissive.setHex(0xffff00); setTimeout(() => this.mat.emissive.setHex(0x000000), 500);
+    }
+}
+attack(targetList) {
+    if (this.isAttacking || this.isDead) return; this.isAttacking = true; this.atkStart = Date.now();
+    if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
+
+    // Fix: Stop current momentum before lunging (Prevents Speed Hack)
+    if (this.body) {
+        this.body.velocity.x = 0; this.body.velocity.z = 0;
+        const f = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion);
+        this.body.applyImpulse(new CANNON.Vec3(f.x * 15, 0, f.z * 15));
+    }
+
+    const range = this.weapon ? 4.0 : 2.5; const dmg = this.weapon ? 2.5 : 1; const knockback = this.weapon ? 60 : 30;
+    if (targetList) {
+        targetList.forEach(foe => {
+            if (foe === this || foe.isDead) return;
+            if (this.mesh.position.distanceTo(foe.mesh.position) < range) {
+                const k = new THREE.Vector3().subVectors(foe.mesh.position, this.mesh.position).normalize();
+                const force = new CANNON.Vec3(k.x * knockback, 10, k.z * knockback);
+
+                // Local Hit
+                if (!foe.remoteId) {
+                    foe.takeHit(force, dmg);
+                }
+                // Remote Hit
+                else if (socket) {
+                    socket.emit('hitPlayer', { targetId: foe.remoteId, damage: dmg });
+                }
+            }
+        });
+    }
+}
+jump() {
+    if (gameState !== 'playing') return; // Fix: No lobby flight
+    if (this.body && Math.abs(this.body.velocity.y) < 0.1) { // Fix: Stricter jump check
+        this.body.velocity.y = 8; // Slightly higher jump
+    }
+}
 }
 
 let player = null; const enemies = []; const weapons = []; const otherPlayers = {}; let socket = null;
@@ -430,7 +452,7 @@ function loop() {
 
             // Camera Follow (Responsive Zoom)
             const isMobile = window.innerWidth < 800;
-            const camY = isMobile ? 14 : 20; // Closer on mobile
+            const camY = isMobile ? 14 : 20;
             const camZ = isMobile ? 18 : 25;
             const targetPos = new THREE.Vector3(player.mesh.position.x, camY, player.mesh.position.z + camZ);
             camera.position.lerp(targetPos, 0.1);
@@ -452,4 +474,9 @@ function loop() {
 }
 
 loop();
-window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight); };
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+});
