@@ -783,7 +783,9 @@ function loop() {
 
         // Raycast for Mouse aiming
         raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObject(ground); // Simple ground check
+        // Use fallbackGround for aiming plane. If environment loads, we might want to raycast against that model, 
+        // but for now fallbackGround is safe and always there.
+        const intersects = raycaster.intersectObject(fallbackGround);
         if (intersects.length > 0) {
             mouseWorldPos.copy(intersects[0].point);
         } else {
