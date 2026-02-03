@@ -128,7 +128,7 @@ class Character {
             this.bodyRadius = 0.5;
             this.body = new CANNON.Body({ mass: 50, shape: new CANNON.Sphere(this.bodyRadius), position: new CANNON.Vec3(startPos.x, 5, startPos.z), material: mats.p, linearDamping: 0.1, angularDamping: 1.0, fixedRotation: true });
             world.addBody(this.body);
-        } else { this.mesh.position.set(startPos.x, startPos.z, startPos.z); }
+        } else { this.mesh.position.set(startPos.x, 0, startPos.z); }
         scene.add(this.mesh);
         this.atkStart = 0; this.isAttacking = false; this.originalColor = new THREE.Color(this.colorVal);
     }
