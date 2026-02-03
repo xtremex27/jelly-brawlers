@@ -165,10 +165,26 @@ class Character {
             v.scale(maxSpeed / v.length(), v);
         }
 
-        let inputX = 0, inputZ = 0;
+        let inputX = joy.x, inputZ = joy.z;
+        if (keys['w'] || keys['arrowup']) inputZ = -1; if (keys['s'] || keys['arrowdown']) inputZ = 1; if (keys['a'] || keys['arrowleft']) inputX = -1; if (keys['d'] || keys['arrowright']) inputX = 1;
 
-        if (this.isBot) { this.body.velocity.x = inputX * 3.5; this.body.velocity.z = inputZ * 3.5; }
-        else if (!this.remoteId && gameState === 'playing') { this.body.velocity.x *= 0.9; this.body.velocity.z *= 0.9; }
+        // Note: Joystick logic (joy.x/z) is already normalized in event listeners, but we clamp here for safety.
+        // Fix: Enforce Input Magnitude Limit (1.0) for consistent speed
+        const len = Math.sqrt(inputX ** 2 + inputZ ** 2);
+        if (len > 1.0) { inputX /= len; inputZ /= len; }
+
+        if (this.isBot) {
+            // ... Bot Logic kept simple ...
+            const dx = playerTarget.x - this.body.position.x, dz = playerTarget.z - this.body.position.z; const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < 15 && dist > 1.1) { inputX = dx / dist; inputZ = dz / dist; }
+            this.body.velocity.x = inputX * 3.5; this.body.velocity.z = inputZ * 3.5;
+        }
+        else if (!this.remoteId && gameState === 'playing') {
+            // Apply Movement
+            const moveSpeed = 12; // Static PC/Mobile Speed
+            this.body.velocity.x = inputX * moveSpeed;
+            this.body.velocity.z = inputZ * moveSpeed;
+        }
 
         let speed = 0;
         if (!this.remoteId) { const v = this.body.velocity; speed = Math.sqrt(v.x ** 2 + v.z ** 2); } else { speed = 5; } // Fake remote speed
@@ -251,8 +267,13 @@ class Character {
     }
     jump() {
         if (gameState !== 'playing') return; // Fix: No lobby flight
-        if (this.body && Math.abs(this.body.velocity.y) < 0.1) { // Fix: Stricter jump check
-            this.body.velocity.y = 8; // Slightly higher jump
+        if (this.mesh.position.y > 1.5) return; // Fix: Ground Check by Position (Prevents Apex double-jump)
+        // Fix: Jump Cooldown & Stricter Ground Check
+        if (Date.now() - this.lastJump < 800) return;
+
+        if (this.body && Math.abs(this.body.velocity.y) < 0.2) {
+            this.body.velocity.y = 8;
+            this.lastJump = Date.now();
         }
     }
 }
