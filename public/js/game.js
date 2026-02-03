@@ -195,8 +195,7 @@ class Character {
         if (this.weapon) this.weapon.drop();
         setTimeout(() => {
             scene.remove(this.mesh); if (this.body) world.removeBody(this.body);
-            if (this.isBot) setTimeout(() => { enemies.push(new Character('bear', true, { x: (Math.random() - 0.5) * 20, z: (Math.random() - 0.5) * 20 })); }, 3000);
-            else if (!this.remoteId) location.reload();
+            if (!this.remoteId && !this.isBot) location.reload();
         }, 2000);
     }
     gainXP(amount) {
