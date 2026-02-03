@@ -218,7 +218,14 @@ class Character {
     attack(targetList) {
         if (this.isAttacking || this.isDead) return; this.isAttacking = true; this.atkStart = Date.now();
         if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
-        if (this.body) { const f = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion); this.body.applyImpulse(new CANNON.Vec3(f.x * 15, 0, f.z * 15)); }
+
+        // Fix: Stop current momentum before lunging (Prevents Speed Hack)
+        if (this.body) {
+            this.body.velocity.x = 0; this.body.velocity.z = 0;
+            const f = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion);
+            this.body.applyImpulse(new CANNON.Vec3(f.x * 15, 0, f.z * 15));
+        }
+
         const range = this.weapon ? 4.0 : 2.5; const dmg = this.weapon ? 2.5 : 1; const knockback = this.weapon ? 60 : 30;
         if (targetList) {
             targetList.forEach(foe => {
@@ -241,8 +248,8 @@ class Character {
     }
     jump() {
         if (gameState !== 'playing') return; // Fix: No lobby flight
-        if (this.body && Math.abs(this.body.velocity.y) < 0.5) {
-            this.body.velocity.y = 6;
+        if (this.body && Math.abs(this.body.velocity.y) < 0.1) { // Fix: Stricter jump check
+            this.body.velocity.y = 8; // Slightly higher jump
         }
     }
 }
@@ -421,8 +428,11 @@ function loop() {
 
             player.update(dt, t, null);
 
-            // Camera Follow (Moved AFTER player update)
-            const targetPos = new THREE.Vector3(player.mesh.position.x, 20, player.mesh.position.z + 25);
+            // Camera Follow (Responsive Zoom)
+            const isMobile = window.innerWidth < 800;
+            const camY = isMobile ? 14 : 20; // Closer on mobile
+            const camZ = isMobile ? 18 : 25;
+            const targetPos = new THREE.Vector3(player.mesh.position.x, camY, player.mesh.position.z + camZ);
             camera.position.lerp(targetPos, 0.1);
             camera.lookAt(player.mesh.position);
 
