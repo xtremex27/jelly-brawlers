@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import * as CANNON from 'cannon-es';
 import { EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, VignetteEffect, GodRaysEffect } from 'postprocessing';
 
@@ -57,7 +58,7 @@ const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
 let mixer; // Animation Mixer
 
 const envLoader = new GLTFLoader();
-const dracoLoader = new THREE.DRACOLoader();
+const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
 envLoader.setDRACOLoader(dracoLoader);
 
