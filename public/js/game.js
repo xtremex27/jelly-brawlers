@@ -318,7 +318,7 @@ document.getElementById('btn-play').addEventListener('click', function (e) {
     lobbyChar.body.position.set(0, 5, 0);
 
     // Spawn Enemies & Weapons
-    enemies.length = 0; enemies.push(new Character('bear', true, { x: -5, z: -5 })); enemies.push(new Character('cat', true, { x: 5, z: -5 }));
+    enemies.length = 0; // No bots for PvP
     weapons.length = 0; weapons.push(new Weapon('bat', 2, 2)); weapons.push(new Weapon('sword', -2, 0)); weapons.push(new Weapon('bat', 0, -4));
 
     // Socket
@@ -328,7 +328,7 @@ document.getElementById('btn-play').addEventListener('click', function (e) {
             socket.emit('joinGame', { x: 0, z: 0, type: 'bear', hp: 5 });
             socket.on('currentPlayers', (players) => { Object.keys(players).forEach(id => { if (id !== socket.id) addRemotePlayer(players[id]); }); });
             socket.on('newPlayer', (info) => addRemotePlayer(info));
-            socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, 5, info.z); } });
+            socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, 0, info.z); } });
             socket.on('playerAttacked', (data) => { if (otherPlayers[data.id]) otherPlayers[data.id].attack(null); });
             socket.on('playerDisconnected', (id) => { if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; } });
 
