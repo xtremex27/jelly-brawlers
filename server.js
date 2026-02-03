@@ -33,12 +33,14 @@ io.on('connection', (socket) => {
     socket.on('playerMovement', (movementData) => {
         if (players[socket.id]) {
             players[socket.id].x = movementData.x;
+            players[socket.id].y = movementData.y; // Capture Y
             players[socket.id].z = movementData.z;
             players[socket.id].rotation = movementData.rotation;
             // Relay to everyone else
             socket.broadcast.emit('playerMoved', {
                 id: socket.id,
                 x: players[socket.id].x,
+                y: players[socket.id].y, // Send Y
                 z: players[socket.id].z,
                 rotation: players[socket.id].rotation
             });

@@ -256,12 +256,12 @@ window.addEventListener('mousemove', e => { if (joy.on) mv(e.clientX, e.clientY)
 window.addEventListener('mouseup', e => { joy.on = false; joy.x = 0; joy.z = 0; jN.style.transform = 'translate(-50%,-50%)'; });
 
 const bindBtn = (id, fn) => { const b = document.getElementById(id); if (b) { b.addEventListener('touchstart', e => { e.preventDefault(); fn() }); b.addEventListener('mousedown', e => { e.preventDefault(); fn() }); } }
-bindBtn('btn-attack', () => player?.attack(enemies)); bindBtn('btn-jump', () => player?.jump());
+bindBtn('btn-attack', () => player?.attack([...enemies, ...Object.values(otherPlayers)])); bindBtn('btn-jump', () => player?.jump());
 window.addEventListener('keydown', e => {
     if (e.key === ' ') e.preventDefault();
     keys[e.key.toLowerCase()] = true;
     if (e.key === ' ' && player) player.jump();
-    if (e.key === 'k' && player) player.attack(enemies);
+    if (e.key === 'k' && player) player.attack([...enemies, ...Object.values(otherPlayers)]);
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
