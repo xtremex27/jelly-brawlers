@@ -53,113 +53,48 @@ scene.add(dirLight);
 // PHYSICS WORLD
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
 
-// ENVIRONMENT (CYBERPUNK CITY PROCEDURAL)
-const cars = [];
-function createProceduralCity() {
-    // 1. Ground - Neon Grid
-    const groundGeo = new THREE.PlaneGeometry(200, 200);
-    const groundMat = new THREE.MeshStandardMaterial({
-        color: 0x000000,
-        roughness: 0.1,
-        metalness: 0.8
+// ENVIRONMENT (LITTLEST TOKYO)
+let mixer; // Animation Mixer
+
+const envLoader = new GLTFLoader();
+const dracoLoader = new THREE.DRACOLoader();
+dracoLoader.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
+envLoader.setDRACOLoader(dracoLoader);
+
+envLoader.load('https://threejs.org/examples/models/gltf/LittlestTokyo.glb', (gltf) => {
+    const model = gltf.scene;
+    // Align with ground - The model origin is usually at center, so we might need adjustment.
+    // Littlest Tokyo is a diorama, so we scale it up.
+    model.position.set(0, 0, 0);
+    model.scale.set(0.01, 0.01, 0.01);
+    scene.add(model);
+
+    // Play Animations (The Train!)
+    mixer = new THREE.AnimationMixer(model);
+    gltf.animations.forEach((clip) => {
+        mixer.clipAction(clip).play();
     });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -1;
-    ground.receiveShadow = true;
-    scene.add(ground);
 
-    // Grid (Cyan/Purple)
-    const grid = new THREE.GridHelper(200, 100, 0x00ffff, 0x220022);
-    grid.position.y = -0.99;
-    scene.add(grid);
+    console.log("Littlest Tokyo Loaded");
 
-    // 2. Skyscrapers (Cyberpunk)
-    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    // Optional: Hide default fallback if it exists
+    if (typeof fallbackGround !== 'undefined') fallbackGround.visible = false;
+}, undefined, (e) => console.error("Error loading Tokyo:", e));
 
-    for (let i = 0; i < 80; i++) {
-        const w = Math.random() * 5 + 3;
-        const h = Math.random() * 20 + 8; // Taller
-        const d = Math.random() * 5 + 3;
+// PHYSICS (Invisible Ground Plane)
+const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), position: new CANNON.Vec3(0, 0, 0) });
+groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+world.addBody(groundBody);
 
-        const x = (Math.random() - 0.5) * 120;
-        const z = (Math.random() - 0.5) * 120;
-
-        if (Math.abs(x) < 10 && Math.abs(z) < 10) continue; // Clear spawn
-
-        // Material: Dark with Emissive "Windows" or Edges
-        const isNeon = Math.random() > 0.7;
-        const color = isNeon ? (Math.random() > 0.5 ? 0x00ffff : 0xff00ff) : 0x222222;
-        const emissive = isNeon ? color : 0x000000;
-
-        const mat = new THREE.MeshStandardMaterial({
-            color: color,
-            roughness: 0.2,
-            metalness: 0.6,
-            emissive: emissive,
-            emissiveIntensity: isNeon ? 2.0 : 0.0
-        });
-
-        const mesh = new THREE.Mesh(boxGeo, mat);
-        mesh.position.set(x, h / 2 - 1, z);
-        mesh.scale.set(w, h, d);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        scene.add(mesh);
-
-        // Physics
-        const body = new CANNON.Body({
-            mass: 0,
-            position: new CANNON.Vec3(x, h / 2 - 1, z),
-            shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2))
-        });
-        world.addBody(body);
-
-        // Add random "Light" on some buildings
-        if (isNeon) {
-            const light = new THREE.PointLight(color, 2, 20);
-            light.position.set(x, h / 2, z);
-            scene.add(light);
-        }
-    }
-
-    // 3. Floating Cars (Visual Only)
-    const carGeo = new THREE.BoxGeometry(0.5, 0.2, 1);
-    for (let i = 0; i < 30; i++) {
-        const mesh = new THREE.Mesh(carGeo, new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0xff0000 : 0xffff00 }));
-        const y = Math.random() * 15 + 5; // Flying high
-        const speed = (Math.random() * 20 + 10) * (Math.random() > 0.5 ? 1 : -1);
-        const z = (Math.random() - 0.5) * 100;
-        mesh.position.set(0, y, z);
-        scene.add(mesh);
-        cars.push({ mesh, speed, limit: 100 });
-    }
-}
-createProceduralCity();
-
-// Fallback aiming object (The ground itself)
+// Fallback invisible plane for raycasting
 const fallbackGround = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial({ visible: false }));
 fallbackGround.rotation.x = -Math.PI / 2;
 scene.add(fallbackGround);
 
 
-// PHYSICS (Invisible Ground Plane)
-const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), position: new CANNON.Vec3(0, -1, 0) });
-groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-world.addBody(groundBody);
 
 
-if (false) { // pillars.forEach(p => {
-    // Visual
-    const mesh = new THREE.Mesh(pillarGeo, pillarMat);
-    mesh.position.set(p.x, 2, p.z);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    scene.add(mesh);
 
-    // Physics
-    const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(1, 3, 1)), position: new CANNON.Vec3(p.x, 2, p.z) });
-    world.addBody(body);
-} // });
 
 // GOD RAYS SOURCE
 const sunGeo = new THREE.SphereGeometry(4, 32, 32);
@@ -736,12 +671,8 @@ function loop() {
     // Cap dt for mobile stability (prevents flying/tunneling)
     if (dt > 0.1) dt = 0.1;
 
-    // Update Cars
-    cars.forEach(car => {
-        car.mesh.position.x += car.speed * dt;
-        if (car.mesh.position.x > car.limit) car.mesh.position.x = -car.limit;
-        if (car.mesh.position.x < -car.limit) car.mesh.position.x = car.limit;
-    });
+    // Update Animations
+    if (mixer) mixer.update(dt);
 
     // CAMERA STATE MACHINE
     if (gameState === 'start') {
