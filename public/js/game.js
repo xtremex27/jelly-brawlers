@@ -266,7 +266,16 @@ composer.addPass(new RenderPass(scene, camera)); composer.addPass(new EffectPass
 
 const joy = { x: 0, z: 0, on: false }, keys = {};
 const jZ = document.getElementById('joystick-zone'), jN = document.getElementById('joystick-nipple'); let jC = { x: 0, y: 0 };
-const mv = (cx, cy) => { const dx = cx - jC.x, dy = cy - jC.y, a = Math.atan2(dy, dx), d = Math.min(Math.sqrt(dx * dx + dy * dy), 40); jN.style.transform = `translate(calc(-50% + ${Math.cos(a) * d}px),calc(-50% + ${Math.sin(a) * d}px))`; joy.x = dx / 40; joy.z = dy / 40; };
+const mv = (cx, cy) => {
+    const dx = cx - jC.x, dy = cy - jC.y;
+    const a = Math.atan2(dy, dx);
+    const d = Math.min(Math.sqrt(dx * dx + dy * dy), 40);
+    jN.style.transform = `translate(calc(-50% + ${Math.cos(a) * d}px),calc(-50% + ${Math.sin(a) * d}px))`;
+    // Fix: Normalize input so it never exceeds 1.0
+    const force = d / 40;
+    joy.x = Math.cos(a) * force;
+    joy.z = Math.sin(a) * force;
+};
 jZ.addEventListener('touchstart', e => { joy.on = true; const r = document.getElementById('joystick-base').getBoundingClientRect(); jC = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; mv(e.touches[0].clientX, e.touches[0].clientY); });
 jZ.addEventListener('touchmove', e => { if (joy.on) mv(e.touches[0].clientX, e.touches[0].clientY); });
 jZ.addEventListener('touchend', e => { joy.on = false; joy.x = 0; joy.z = 0; jN.style.transform = 'translate(-50%,-50%)'; });
