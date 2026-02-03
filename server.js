@@ -40,7 +40,7 @@ io.on('connection', (socket) => {
             socket.broadcast.emit('playerMoved', {
                 id: socket.id,
                 x: players[socket.id].x,
-                y: players[socket.id].y, // Send Y
+                y: players[socket.id].y || 0, // Send Y or default to 0
                 z: players[socket.id].z,
                 rotation: players[socket.id].rotation
             });

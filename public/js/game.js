@@ -211,7 +211,7 @@ class Character {
         if (this.isAttacking || this.isDead) return; this.isAttacking = true; this.atkStart = Date.now();
         if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
         if (this.body) { const f = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion); this.body.applyImpulse(new CANNON.Vec3(f.x * 15, 0, f.z * 15)); }
-        const range = this.weapon ? 4.0 : 2.5; const dmg = this.weapon ? 2 : 1; const knockback = this.weapon ? 60 : 30;
+        const range = this.weapon ? 4.0 : 2.5; const dmg = this.weapon ? 2.5 : 1; const knockback = this.weapon ? 60 : 30;
         if (targetList) {
             targetList.forEach(foe => {
                 if (foe === this || foe.isDead) return;
@@ -327,7 +327,7 @@ document.getElementById('btn-play').addEventListener('click', function (e) {
             socket.emit('joinGame', { x: 0, z: 0, type: 'bear', hp: 5 });
             socket.on('currentPlayers', (players) => { Object.keys(players).forEach(id => { if (id !== socket.id) addRemotePlayer(players[id]); }); });
             socket.on('newPlayer', (info) => addRemotePlayer(info));
-            socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, info.y, info.z); } });
+            socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, info.y || 0, info.z); } });
             socket.on('playerAttacked', (data) => { if (otherPlayers[data.id]) otherPlayers[data.id].attack(null); });
             socket.on('playerDisconnected', (id) => { if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; } });
 
