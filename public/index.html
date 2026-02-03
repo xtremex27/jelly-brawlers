@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Jelly Brawlers 3D HQ</title>
+    <!-- Correct Path to CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+
+    <!-- Import Maps -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js",
+                "postprocessing": "https://unpkg.com/postprocessing@6.35.0/build/index.js"
+            }
+        }
+    </script>
+    <!-- Socket.io -->
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+
+<body>
+
+    <!-- UI LAYER -->
+    <div id="ui-layer">
+
+        <!-- 1. START SCREEN -->
+        <div id="start-screen" class="screen active">
+            <h1 class="game-title">JELLY<br>BRAWLERS</h1>
+            <p class="subtitle">PHYSICS MAYHEM</p>
+            <button id="btn-enter" class="btn-primary">PRESS START</button>
+        </div>
+
+        <!-- 2. LOBBY SCREEN -->
+        <div id="lobby-screen" class="screen hidden">
+            <div class="lobby-panel">
+                <h2>CHOOSE YOUR FIGHTER</h2>
+
+                <!-- Color Selector -->
+                <div class="color-selector">
+                    <div class="color-btn" style="background:#FF6B6B" data-color="0xFF6B6B"></div>
+                    <div class="color-btn" style="background:#4ECDC4" data-color="0x4ECDC4"></div>
+                    <div class="color-btn" style="background:#FFE66D" data-color="0xFFE66D"></div>
+                    <div class="color-btn" style="background:#FF9FF3" data-color="0xFF9FF3"></div>
+                </div>
+
+                <div class="lobby-controls">
+                    <button id="btn-play" class="btn-primary">FIND MATCH</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. GAME HUD -->
+        <div id="game-ui" class="screen hidden">
+            <!-- Joystick Zone -->
+            <div id="joystick-zone">
+                <div id="joystick-base">
+                    <div id="joystick-nipple"></div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons-container"
+                style="position: absolute; bottom: 40px; right: 40px; display: flex; gap: 20px;">
+                <div id="btn-jump" class="action-btn" style="background: #4ECDC4;">🦘</div>
+                <div id="btn-attack" class="action-btn" style="background: #FF6B6B;">🥊</div>
+            </div>
+
+            <!-- HUD: HEALTH & XP -->
+            <div id="game-hud" class="game-hud">
+                <div class="health-container">
+                    <div class="heart-icon">❤️</div>
+                    <div class="health-bar-bg">
+                        <div id="health-bar-fill" class="health-bar-fill" style="width: 100%;"></div>
+                    </div>
+                </div>
+                <div class="xp-container">
+                    <div class="xp-level" id="xp-level">LVL 1</div>
+                    <div class="xp-bar-bg">
+                        <div id="xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="debug-info"><span id="fps-counter">0 FPS</span></div>
+        </div>
+    </div>
+
+    <!-- CANVAS 3D -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- GAME LOGIC: Correct Path -->
+    <script type="module" src="js/game.js"></script>
+
+</body>
+
+</html>
