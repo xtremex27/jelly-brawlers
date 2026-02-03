@@ -105,12 +105,20 @@ class Weapon {
         this.mesh.castShadow = true; scene.add(this.mesh); world.addBody(this.body);
     }
     update() {
-        if (!this.equippedBy) {
-            this.mesh.position.copy(this.body.position); this.mesh.quaternion.copy(this.body.quaternion);
-            if (player && gameState === 'playing' && !player.weapon && this.mesh.position.distanceTo(player.mesh.position) < 1.5) this.equip(player);
-        } else {
+        if (this.equippedBy) {
             const handPos = new THREE.Vector3(); this.equippedBy.armR.children[0].getWorldPosition(handPos);
             this.mesh.position.copy(handPos); this.mesh.quaternion.copy(this.equippedBy.mesh.quaternion); this.mesh.rotateX(Math.PI / 2);
+            if (this.equippedBy.isAttacking) {
+                this.mesh.rotation.x -= 1.0;
+                this.mesh.position.y -= 0.5;
+            }
+        } else {
+            this.mesh.rotation.y += 0.05;
+            this.mesh.position.copy(this.body.position); this.mesh.quaternion.copy(this.body.quaternion);
+            if (player && !player.weapon && this.mesh.position.distanceTo(player.mesh.position) < 1.5) {
+                this.equip(player);
+                if (socket) socket.emit('playerPickup', { id: this.id, type: this.type });
+            }
         }
     }
     equip(char) { this.equippedBy = char; char.weapon = this; world.removeBody(this.body); }
@@ -352,7 +360,12 @@ function addRemotePlayer(info) { otherPlayers[info.id] = new Character(info.type
 
 const clock = new THREE.Clock();
 function loop() {
-    requestAnimationFrame(loop); const dt = clock.getDelta(), t = clock.getElapsedTime();
+    requestAnimationFrame(loop);
+    let dt = clock.getDelta();
+    const t = clock.getElapsedTime();
+
+    // Cap dt for mobile stability (prevents flying/tunneling)
+    if (dt > 0.1) dt = 0.1;
 
     // CAMERA STATE MACHINE
     if (gameState === 'start') {
@@ -372,16 +385,17 @@ function loop() {
     } else if (gameState === 'playing') {
         // Game View
         if (player) {
-            world.step(1 / 60, dt, 3);
-            let x = joy.x, z = joy.z;
-            if (keys['w'] || keys['arrowup']) z = -1; if (keys['s'] || keys['arrowdown']) z = 1; if (keys['a'] || keys['arrowleft']) x = -1; if (keys['d'] || keys['arrowright']) x = 1;
-
             // Movement Variables
             const isGrounded = player.body.position.y < 1.0;
             const moveSpeed = isGrounded ? 12 : 6; // Less control in air
 
             // Apply Velocity (preserve Y for gravity)
             const currentY = player.body.velocity.y;
+            world.step(1 / 60, dt, 3);
+
+            let x = joy.x, z = joy.z;
+            if (keys['w'] || keys['arrowup']) z = -1; if (keys['s'] || keys['arrowdown']) z = 1; if (keys['a'] || keys['arrowleft']) x = -1; if (keys['d'] || keys['arrowright']) x = 1;
+
             player.body.velocity.x = x * moveSpeed;
             player.body.velocity.z = z * moveSpeed;
             player.body.velocity.y = currentY;
@@ -397,39 +411,37 @@ function loop() {
                 // Kill Outward Velocity (Fixes vibration/sticking)
                 const v = new THREE.Vector3(player.body.velocity.x, 0, player.body.velocity.z);
                 const n = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)); // Normal pointing out
-                if (this.mesh.position.distanceTo(player.mesh.position) < 1.5 && !player.weapon && !this.holder) {
-                    this.pickup(player);
-                    if (socket) socket.emit('playerPickup', { id: this.id, type: this.type });
-                }
-            } else {
-                this.mesh.position.copy(this.holder.mesh.position).add(new THREE.Vector3(0.5, 0.5, 0.5).applyQuaternion(this.holder.mesh.quaternion));
-                this.mesh.quaternion.copy(this.holder.mesh.quaternion);
-                if (this.holder.isAttacking) {
-                    this.mesh.rotation.x -= 1.0;
-                    this.mesh.position.y -= 0.5;
+                const dot = v.dot(n);
+                if (dot > 0) { // If moving out
+                    player.body.velocity.x -= n.x * dot;
+                    player.body.velocity.z -= n.z * dot;
                 }
             }
+
+            player.update(dt, t, null);
+
+            // Camera Follow (Moved AFTER player update)
+            const targetPos = new THREE.Vector3(player.mesh.position.x, 20, player.mesh.position.z + 25);
+            camera.position.lerp(targetPos, 0.1);
+            camera.lookAt(player.mesh.position);
+
+            enemies.forEach(b => b.update(dt, t, player.body.position));
+            weapons.forEach(w => w.update());
+            if (socket) socket.emit('playerMovement', {
+                x: player.mesh.position.x,
+                y: player.mesh.position.y,
+                z: player.mesh.position.z,
+                rotation: player.mesh.rotation.y
+            });
         }
     }
 
-    // ... inside socket block ...
-    socket.on('playerDied', (data) => {
-        const target = data.id === socket.id ? player : otherPlayers[data.id];
-        if (target) target.die();
-    });
-
-    socket.on('playerPickup', (data) => {
-        if (otherPlayers[data.playerId]) {
-            // Find nearest free weapon of that type
-            const w = weapons.find(w => w.type === data.type && !w.holder);
-            if (w) w.pickup(otherPlayers[data.playerId]);
-        }
-    });
+    composer.render();
+    const el = document.getElementById('fps-counter'); if (el && clock.getElapsedTime() % 1 < 0.1) el.innerText = Math.round(1 / dt) + " FPS";
 }
-    }
 
 composer.render();
 const el = document.getElementById('fps-counter'); if (el && clock.getElapsedTime() % 1 < 0.1) el.innerText = Math.round(1 / dt) + " FPS";
-}
+
 loop();
 window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight); };

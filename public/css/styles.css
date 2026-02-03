@@ -183,9 +183,37 @@ body {
 /* HUD Fixes */
 .game-hud {
     top: 20px;
-    left: 20px;
+    top: 20px;
     right: 20px;
-    width: auto;
+    text-align: right;
+}
+
+/* ROTATE DEVICE OVERLAY */
+#rotate-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #FF6B6B;
+    z-index: 9999;
+    color: white;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+@media screen and (orientation: portrait) and (max-width: 900px) {
+    #rotate-overlay {
+        display: flex;
+    }
+
+    #game-ui,
+    #lobby-screen {
+        display: none !important;
+    }
 }
 
 .xp-container {
