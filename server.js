@@ -51,6 +51,10 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('playerAttacked', { id: socket.id });
     });
 
+    socket.on('playerPickup', (data) => {
+        socket.broadcast.emit('playerPickup', { playerId: socket.id, type: data.type });
+    });
+
     // Handle Hit Event (Attacker -> Server -> Target)
     socket.on('hitPlayer', (data) => {
         const target = players[data.targetId];
