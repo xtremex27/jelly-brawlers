@@ -53,22 +53,44 @@ scene.add(dirLight);
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
 
 // ENVIRONMENT (GLTF CITY)
-const envLoader = new GLTFLoader();
-envLoader.load('https://threejs.org/examples/models/gltf/Collision-world.glb', (gltf) => {
-    const model = gltf.scene;
-    // Scale model to match typical player size
-    model.scale.set(0.5, 0.5, 0.5);
-    model.position.y = -1; // Floor level
+// 1. Create a Fallback Visual Ground (So it's never just black)
+const fbGeo = new THREE.PlaneGeometry(100, 100);
+const fbMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 });
+const fallbackGround = new THREE.Mesh(fbGeo, fbMat);
+fallbackGround.rotation.x = -Math.PI / 2;
+fallbackGround.position.y = -1.05; // Slightly below GLTF floor
+fallbackGround.receiveShadow = true;
+scene.add(fallbackGround);
 
-    model.traverse(o => {
-        if (o.isMesh) {
-            o.castShadow = true;
-            o.receiveShadow = true;
-            if (o.material) o.material.side = THREE.DoubleSide;
-        }
-    });
-    scene.add(model);
-});
+const envLoader = new GLTFLoader();
+// Using direct RAW GitHub URL for better availability
+envLoader.load(
+    'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/Collision-world.glb',
+    (gltf) => {
+        const model = gltf.scene;
+        model.scale.set(0.5, 0.5, 0.5);
+        model.position.y = -1;
+
+        model.traverse(o => {
+            if (o.isMesh) {
+                o.castShadow = true;
+                o.receiveShadow = true;
+                if (o.material) o.material.side = THREE.DoubleSide;
+            }
+        });
+        scene.add(model);
+        console.log("Environment loaded successfully");
+        // Optional: Hide fallback if success, or keep it as base
+        // fallbackGround.visible = false; 
+    },
+    undefined, // onProgress
+    (error) => {
+        console.error("An error happened loading the environment:", error);
+        // Fallback: Add some simple boxes if env fails
+        const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), fbMat);
+        box.position.set(5, 0, 5); scene.add(box);
+    }
+);
 
 // PHYSICS (Invisible Ground Plane)
 const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), position: new CANNON.Vec3(0, -1, 0) });
