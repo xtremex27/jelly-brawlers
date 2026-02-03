@@ -413,7 +413,12 @@ function loop() {
 
             enemies.forEach(b => b.update(dt, t, player.body.position));
             weapons.forEach(w => w.update());
-            if (socket) socket.emit('playerMovement', { x: player.mesh.position.x, z: player.mesh.position.z, rotation: player.mesh.rotation.y });
+            if (socket) socket.emit('playerMovement', {
+                x: player.mesh.position.x,
+                y: player.mesh.position.y,
+                z: player.mesh.position.z,
+                rotation: player.mesh.rotation.y
+            });
         }
     }
 
