@@ -327,7 +327,7 @@ document.getElementById('btn-play').addEventListener('click', function (e) {
             socket.emit('joinGame', { x: 0, z: 0, type: 'bear', hp: 5 });
             socket.on('currentPlayers', (players) => { Object.keys(players).forEach(id => { if (id !== socket.id) addRemotePlayer(players[id]); }); });
             socket.on('newPlayer', (info) => addRemotePlayer(info));
-            socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, 0, info.z); } });
+            socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, info.y, info.z); } });
             socket.on('playerAttacked', (data) => { if (otherPlayers[data.id]) otherPlayers[data.id].attack(null); });
             socket.on('playerDisconnected', (id) => { if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; } });
 
