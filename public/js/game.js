@@ -277,14 +277,12 @@ class Character {
         }
     }
     jump() {
-        if (gameState !== 'playing') return; // Fix: No lobby flight
-        if (this.mesh.position.y > 1.5) return; // Fix: Ground Check by Position (Prevents Apex double-jump)
-        // Fix: Jump Cooldown & Stricter Ground Check
-        if (Date.now() - this.lastJump < 800) return;
+        if (gameState !== 'playing') return;
 
-        if (this.body && Math.abs(this.body.velocity.y) < 0.2) {
+        // Fix: Use physical collision flag (100% reliable ground check)
+        if (this.canJump) {
             this.body.velocity.y = 8;
-            this.lastJump = Date.now();
+            this.canJump = false; // Cannot jump again until collision resets this
         }
     }
 }
