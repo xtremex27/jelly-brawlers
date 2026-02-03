@@ -52,24 +52,31 @@ scene.add(dirLight);
 // PHYSICS WORLD
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
 
-// ENVIRONMENT (DUNGEON)
-// Ground
-const groundGeo = new THREE.CylinderGeometry(25, 25, 2, 32);
-const ground = new THREE.Mesh(groundGeo, mats.g);
-ground.position.y = -1;
-ground.receiveShadow = true;
-scene.add(ground);
-const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Cylinder(25, 25, 2, 32), position: new CANNON.Vec3(0, -1, 0) });
+// ENVIRONMENT (GLTF CITY)
+const envLoader = new GLTFLoader();
+envLoader.load('https://threejs.org/examples/models/gltf/Collision-world.glb', (gltf) => {
+    const model = gltf.scene;
+    // Scale model to match typical player size
+    model.scale.set(0.5, 0.5, 0.5);
+    model.position.y = -1; // Floor level
+
+    model.traverse(o => {
+        if (o.isMesh) {
+            o.castShadow = true;
+            o.receiveShadow = true;
+            if (o.material) o.material.side = THREE.DoubleSide;
+        }
+    });
+    scene.add(model);
+});
+
+// PHYSICS (Invisible Ground Plane)
+const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), position: new CANNON.Vec3(0, -1, 0) });
+groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
 world.addBody(groundBody);
 
-// Pillars (Obstacles)
-const pillarGeo = new THREE.BoxGeometry(2, 6, 2);
-const pillarMat = new THREE.MeshStandardMaterial({ map: dungeonTex, color: 0x888888 }); // Reuse texture
-const pillars = [
-    { x: 8, z: 8 }, { x: -8, z: 8 }, { x: 8, z: -8 }, { x: -8, z: -8 },
-    { x: 12, z: 0 }, { x: -12, z: 0 }, { x: 0, z: 12 }, { x: 0, z: -12 } // More pillars
-];
-pillars.forEach(p => {
+
+if (false) { // pillars.forEach(p => {
     // Visual
     const mesh = new THREE.Mesh(pillarGeo, pillarMat);
     mesh.position.set(p.x, 2, p.z);
@@ -79,7 +86,7 @@ pillars.forEach(p => {
     // Physics
     const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(1, 3, 1)), position: new CANNON.Vec3(p.x, 2, p.z) });
     world.addBody(body);
-});
+} // });
 
 // GOD RAYS SOURCE
 const sunGeo = new THREE.SphereGeometry(4, 32, 32);
