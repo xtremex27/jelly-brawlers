@@ -62,39 +62,89 @@ const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
 envLoader.setDRACOLoader(dracoLoader);
 
-// Using the official Three.js example URL (Raw GitHub Content for reliability)
-const sponzaUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Sponza/glTF/Sponza.gltf';
+// Using a CDN-proxied GLB (Single File) for maximum reliability
+// Source: Breush/lava-assets on GitHub via jsDelivr
+const sponzaUrl = 'https://cdn.jsdelivr.net/gh/Breush/lava-assets@master/models/sponza.glb';
 
-envLoader.load(sponzaUrl, (gltf) => {
-    const model = gltf.scene;
+function loadSponza() {
+    envLoader.load(sponzaUrl, (gltf) => {
+        const model = gltf.scene;
 
-    // Scale: Sponza is usually large, but let's check scaling.
-    // Usually it needs to be scaled UP if it's the glTF sample, but we'll start 1.0.
-    model.scale.set(1.0, 1.0, 1.0);
-    model.position.set(0, 0, 0);
+        // Scale & Position
+        model.scale.set(1.0, 1.0, 1.0);
+        model.position.set(0, 0, 0);
 
-    // Auto-Ground: Measure model and place on floor (Y=0)
-    const box = new THREE.Box3().setFromObject(model);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
+        // Auto-Ground: Measure model and place on floor (Y=0)
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
 
-    // If it's too small (e.g. < 5m tall), assume it's miniature and scale up
-    if (size.y < 5) model.scale.set(5.0, 5.0, 5.0);
+        // If it's too small (e.g. < 5m tall), assume it's miniature and scale up
+        // Sponza GLB is usually correct scale (meters), but just in case:
+        if (size.y < 5) model.scale.set(10.0, 10.0, 10.0);
 
-    // Re-measure after scaling
-    const box2 = new THREE.Box3().setFromObject(model);
-    model.position.y = -box2.min.y; // Align bottom to floor
-    // Center X/Z
-    model.position.x = -center.x * model.scale.x;
-    model.position.z = -center.z * model.scale.z;
+        // Re-measure after scaling
+        const box2 = new THREE.Box3().setFromObject(model);
+        model.position.y = -box2.min.y; // Align bottom to floor
 
-    scene.add(model);
+        scene.add(model);
+        console.log("Sponza GLB Loaded Successfully");
 
-    console.log("Sponza Loaded", size);
+        // Hide fallbacks
+        if (typeof fallbackGround !== 'undefined') fallbackGround.visible = false;
+        if (typeof fallbackArenaGroup !== 'undefined') scene.remove(fallbackArenaGroup);
 
-    // Optional: Hide default fallback if it exists
-    if (typeof fallbackGround !== 'undefined') fallbackGround.visible = false;
-}, undefined, (e) => console.error("Error loading Sponza:", e));
+    }, (xhr) => {
+        // Progress
+        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+    }, (e) => {
+        console.error("Error loading Sponza GLB:", e);
+        // CRITICAL FALLBACK: If Sponza fails, create a procedural realistic room
+        createFallbackArena();
+    });
+}
+
+// FALLBACK: Realistic Concrete Arena (If GLTF fails)
+let fallbackArenaGroup;
+function createFallbackArena() {
+    if (fallbackArenaGroup) return; // Already created
+    console.log("Activating Fallback Realistic Arena");
+
+    fallbackArenaGroup = new THREE.Group();
+    scene.add(fallbackArenaGroup);
+
+    // 1. Concrete Floor
+    const floorGeo = new THREE.PlaneGeometry(100, 100);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8, metalness: 0.2 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    fallbackArenaGroup.add(floor);
+
+    // 2. Pillars (Classical Style-ish)
+    const pillarGeo = new THREE.BoxGeometry(2, 10, 2);
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.9 });
+
+    const positions = [
+        { x: 10, z: 10 }, { x: -10, z: 10 }, { x: 10, z: -10 }, { x: -10, z: -10 },
+        { x: 20, z: 20 }, { x: -20, z: 20 }, { x: 20, z: -20 }, { x: -20, z: -20 }
+    ];
+
+    positions.forEach(p => {
+        const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+        pillar.position.set(p.x, 5, p.z);
+        pillar.castShadow = true;
+        pillar.receiveShadow = true;
+        fallbackArenaGroup.add(pillar);
+
+        // Add physics for pillars (Simple implementation for fallback)
+        const shape = new CANNON.Box(new CANNON.Vec3(1, 5, 1));
+        const body = new CANNON.Body({ mass: 0, position: new CANNON.Vec3(p.x, 5, p.z), shape: shape });
+        world.addBody(body);
+    });
+}
+
+// Start Loading
+loadSponza();
 
 // PHYSICS (Invisible Ground Plane)
 const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), position: new CANNON.Vec3(0, 0, 0) });
