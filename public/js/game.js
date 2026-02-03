@@ -12,50 +12,105 @@ const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Ground plane fo
 const mouseWorldPos = new THREE.Vector3();
 
 // ... (Utils same as before) ...
-function getStoneTexture() {
+// UTILS
+function getDungeonTexture() {
     const s = 1024, c = document.createElement('canvas'); c.width = s; c.height = s;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#2c3e50'; ctx.fillRect(0, 0, s, s);
-    ctx.strokeStyle = '#34495e'; ctx.lineWidth = 4;
+
+    // Background Dark Stone
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, s, s);
+
+    // Grid Lines (Tiles)
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 10;
     ctx.beginPath();
-    for (let r = 100; r < s; r += 100) { ctx.arc(s / 2, s / 2, r, 0, Math.PI * 2); }
+    const step = s / 8;
+    for (let i = 0; i <= s; i += step) {
+        ctx.moveTo(i, 0); ctx.lineTo(i, s);
+        ctx.moveTo(0, i); ctx.lineTo(s, i);
+    }
     ctx.stroke();
-    for (let i = 0; i < 500; i++) {
-        ctx.fillStyle = Math.random() > 0.5 ? '#1a252f' : '#3e5871';
+
+    // Noise/Detail
+    for (let i = 0; i < 5000; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#222' : '#111';
         ctx.fillRect(Math.random() * s, Math.random() * s, 4, 4);
     }
+
     const t = new THREE.CanvasTexture(c);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2);
+    t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(20, 20); // Repeat for large floor
     return t;
 }
-const stoneTex = getStoneTexture();
-function getNoiseTexture() {
-    const s = 512, c = document.createElement('canvas'); c.width = s; c.height = s;
-    const ctx = c.getContext('2d'); ctx.fillStyle = '#999999'; ctx.fillRect(0, 0, s, s);
-    const d = ctx.getImageData(0, 0, s, s), data = d.data;
-    for (let i = 0; i < data.length; i += 4) { const g = (Math.random() - 0.5) * 15; data[i] += g; data[i + 1] += g; data[i + 2] += g; }
-    ctx.putImageData(d, 0, 0); const t = new THREE.CanvasTexture(c);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2); return t;
-}
-const noiseTex = getNoiseTexture();
+const dungeonTex = getDungeonTexture();
+const mats = {
+    p: new THREE.MeshPhysicalMaterial({ color: 0xeeeeee, roughness: 0.8 }), // Player placeholder
+    w: new THREE.MeshStandardMaterial({ color: 0xffffff, map: null }),      // Weapon placeholder
+    g: new THREE.MeshStandardMaterial({ map: dungeonTex, roughness: 0.9, metalness: 0.1 }) // Ground
+};
 
-// SETUP
-const canvas = document.getElementById('game-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, powerPreference: "high-performance", antialias: false, depth: true, alpha: false });
-renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 
+// SCENE SETUP
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x050505);
-scene.fog = new THREE.Fog(0x050505, 10, 80);
+scene.background = new THREE.Color(0x111111); // Darker background
+// scene.fog = new THREE.Fog(0x111111, 10, 50); // Optional fog for atmosphere
 
-const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 30, 40);
-camera.lookAt(0, 0, 0);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 25, 25); camera.lookAt(0, 0, 0);
 
-// ENVIRONMENT
-scene.environment = (new THREE.PMREMGenerator(renderer)).fromScene(new RoomEnvironment(), 0.04).texture;
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+// LIGHTING
+const ambLight = new THREE.AmbientLight(0xffffff, 0.6); // Brighter Ambient
+scene.add(ambLight);
+
+const hemiLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.5); // Sky/Ground tint
+scene.add(hemiLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+dirLight.position.set(10, 20, 10);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 2048; dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.camera.near = 0.5; dirLight.shadow.camera.far = 50;
+dirLight.shadow.camera.left = -20; dirLight.shadow.camera.right = 20;
+dirLight.shadow.camera.top = 20; dirLight.shadow.camera.bottom = -20;
+scene.add(dirLight);
+
+// PHYSICS WORLD
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
+
+// ENVIRONMENT (DUNGEON)
+// Ground
+const groundGeo = new THREE.CylinderGeometry(25, 25, 2, 32);
+const ground = new THREE.Mesh(groundGeo, mats.g);
+ground.position.y = -1;
+ground.receiveShadow = true;
+scene.add(ground);
+const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Cylinder(25, 25, 2, 32), position: new CANNON.Vec3(0, -1, 0) });
+world.addBody(groundBody);
+
+// Pillars (Obstacles)
+const pillarGeo = new THREE.BoxGeometry(2, 6, 2);
+const pillarMat = new THREE.MeshStandardMaterial({ map: dungeonTex, color: 0x888888 }); // Reuse texture
+const pillars = [
+    { x: 8, z: 8 }, { x: -8, z: 8 }, { x: 8, z: -8 }, { x: -8, z: -8 },
+    { x: 12, z: 0 }, { x: -12, z: 0 }, { x: 0, z: 12 }, { x: 0, z: -12 } // More pillars
+];
+pillars.forEach(p => {
+    // Visual
+    const mesh = new THREE.Mesh(pillarGeo, pillarMat);
+    mesh.position.set(p.x, 2, p.z);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    // Physics
+    const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(1, 3, 1)), position: new CANNON.Vec3(p.x, 2, p.z) });
+    world.addBody(body);
+});
 
 // GOD RAYS SOURCE
 const sunGeo = new THREE.SphereGeometry(4, 32, 32);
@@ -64,37 +119,7 @@ const sunMesh = new THREE.Mesh(sunGeo, sunMat);
 sunMesh.position.set(0, 20, -30);
 scene.add(sunMesh);
 
-// LIGHTS
-const moonLight = new THREE.DirectionalLight(0x6a89cc, 2.0);
-moonLight.position.copy(sunMesh.position); moonLight.castShadow = true; moonLight.shadow.mapSize.set(2048, 2048);
-scene.add(moonLight);
-const fillLight = new THREE.AmbientLight(0x404040, 1.0); scene.add(fillLight);
-const torchLight = new THREE.PointLight(0xff9f43, 3, 50); torchLight.position.set(0, 8, 0); scene.add(torchLight);
 
-// PHYSICS
-const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -20, 0) });
-const mats = { g: new CANNON.Material(), p: new CANNON.Material(), w: new CANNON.Material() };
-world.addContactMaterial(new CANNON.ContactMaterial(mats.g, mats.p, { friction: 0.1, restitution: 0.0 }));
-world.addContactMaterial(new CANNON.ContactMaterial(mats.p, mats.p, { friction: 0.5, restitution: 0.5 }));
-
-// ARENA
-const groundGeo = new THREE.CylinderGeometry(22, 22, 1, 64);
-const groundMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.8, color: 0x888888 });
-const ground = new THREE.Mesh(groundGeo, groundMat); ground.position.y = -0.5; ground.receiveShadow = true; scene.add(ground);
-const gb = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(50, 0.5, 50)), position: new CANNON.Vec3(0, -0.5, 0), material: mats.g }); world.addBody(gb);
-
-// PILLARS
-const pillarGeo = new THREE.CylinderGeometry(0.8, 1, 6, 8);
-const pillarMat = new THREE.MeshStandardMaterial({ color: 0x2f3640, roughness: 0.9 });
-const fireGeo = new THREE.SphereGeometry(0.5); const fireMat = new THREE.MeshBasicMaterial({ color: 0xff9f43 });
-for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2; const r = 18; const x = Math.cos(angle) * r; const z = Math.sin(angle) * r;
-    const mesh = new THREE.Mesh(pillarGeo, pillarMat); mesh.position.set(x, 3, z); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh);
-    const body = new CANNON.Body({ mass: 0, shape: new CANNON.Cylinder(1, 1, 6, 8), position: new CANNON.Vec3(x, 3, z) }); world.addBody(body);
-    const fire = new THREE.Mesh(fireGeo, fireMat); fire.position.set(0, 3.5, 0); mesh.add(fire);
-}
-const chainGeo = new THREE.TorusGeometry(18, 0.2, 8, 64); const chainMat = new THREE.MeshStandardMaterial({ color: 0x000000, metalness: 0.8, roughness: 0.4 });
-const chain = new THREE.Mesh(chainGeo, chainMat); chain.rotation.x = -Math.PI / 2; chain.position.y = 1; scene.add(chain);
 
 // BULLETS
 const bullets = [];
@@ -141,20 +166,85 @@ class Bullet {
 // WEAPON
 class Weapon {
     constructor(type, x, z) {
-        this.type = type; this.mesh = new THREE.Group(); this.equippedBy = null;
-        const mat = new THREE.MeshStandardMaterial({ color: type === 'bat' ? 0x8e44ad : (type === 'gun' ? 0x2c3e50 : 0xecf0f1), metalness: 0.6, roughness: 0.4 });
-        if (type === 'bat') {
-            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.4), new THREE.MeshStandardMaterial({ color: 0x333333 })); handle.position.y = -0.3; this.mesh.add(handle);
-            const bat = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.06, 1.2), mat); bat.position.y = 0.5; this.mesh.add(bat);
-        } else if (type === 'gun') {
-            const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.3, 0.15), new THREE.MeshStandardMaterial({ color: 0x5e412f })); handle.position.y = -0.2; this.mesh.add(handle);
-            const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.6), mat); barrel.position.set(0, 0, 0.2); this.mesh.add(barrel);
-        } else {
-            const h = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3), new THREE.MeshStandardMaterial({ color: 0x5e412f })); h.position.y = -0.4; this.mesh.add(h);
-            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.5, 0.05), mat); blade.position.y = 0.5; this.mesh.add(blade);
-        }
+        this.id = Math.random().toString(36).substr(2, 9); this.type = type; this.equippedBy = null;
+        this.mesh = this.createWeaponMesh(type);
+        this.mesh.position.set(x, 5, z);
         this.body = new CANNON.Body({ mass: 5, shape: new CANNON.Box(new CANNON.Vec3(0.1, 0.6, 0.1)), position: new CANNON.Vec3(x, 5, z), material: mats.w });
         this.mesh.castShadow = true; scene.add(this.mesh); world.addBody(this.body);
+    }
+
+    createWeaponMesh(type) {
+        const g = new THREE.Group();
+
+        if (type === 'gun') {
+            // PISTOL
+            const dark = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.8 });
+            const silver = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.2, metalness: 1.0 });
+
+            // Grip
+            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.15), dark);
+            grip.position.set(0, -0.1, 0);
+            grip.rotation.x = 0.2;
+            g.add(grip);
+
+            // Frame/Barrel
+            const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.5), silver);
+            barrel.position.set(0, 0.1, 0.15);
+            g.add(barrel);
+
+            // Slide (Top)
+            const slide = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.05, 0.5), dark);
+            slide.position.set(0, 0.16, 0.15);
+            g.add(slide);
+
+            // Trigger Guard
+            const guard = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.1, 0.1), dark);
+            guard.position.set(0, -0.05, 0.1);
+            g.add(guard);
+        }
+        else if (type === 'sword') {
+            // SWORD
+            const steel = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.1, metalness: 0.9 });
+            const gold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
+            const leather = new THREE.MeshStandardMaterial({ color: 0x654321, roughness: 0.9 });
+
+            // Blade
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.2, 0.02), steel);
+            blade.position.y = 0.6;
+            g.add(blade);
+
+            // Crossguard
+            const guard = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 0.05), gold);
+            guard.position.y = 0.0;
+            g.add(guard);
+
+            // Hilt
+            const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.3), leather);
+            hilt.position.y = -0.15;
+            g.add(hilt);
+
+            // Pommel
+            const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06), gold);
+            pommel.position.y = -0.3;
+            g.add(pommel);
+        }
+        else { // bat
+            // BAT
+            const wood = new THREE.MeshStandardMaterial({ color: 0xdeb887, roughness: 0.6 });
+            const tape = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+
+            // Bat body (Tape + Wood)
+            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 0.4), tape);
+            handle.position.y = -0.3;
+            g.add(handle);
+
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.04, 1.0), wood);
+            body.position.y = 0.4;
+            g.add(body);
+        }
+
+        g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        return g;
     }
     update() {
         if (this.equippedBy) {
