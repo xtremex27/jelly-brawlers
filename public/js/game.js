@@ -247,6 +247,7 @@ class Character {
 }
 
 let player = null; const enemies = []; const weapons = []; const otherPlayers = {}; let socket = null;
+let lobbyChar = null, gameState = 'start';
 const composer = new EffectComposer(renderer);
 const godRaysEffect = new GodRaysEffect(camera, sunMesh, { resolutionScale: 0.5, density: 0.96, decay: 0.95, weight: 1.0, exposure: 1.0, samples: 60, clampMax: 1.0 });
 const bloom = new BloomEffect({ intensity: 1.5, luminanceThreshold: 0.2, luminanceSmoothing: 0.8 });
