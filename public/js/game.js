@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import * as CANNON from 'cannon-es';
 import { EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, VignetteEffect, GodRaysEffect } from 'postprocessing';
 
@@ -52,96 +54,52 @@ scene.add(dirLight);
 // PHYSICS WORLD
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
 
-// ENVIRONMENT (HOLOGRAPHIC COMBAT ARENA)
-function createCombatArena() {
-    // 1. Floor (Visual + Physics)
-    const floorSize = 80;
-    const floorGeo = new THREE.PlaneGeometry(floorSize, floorSize);
-    const floorMat = new THREE.MeshStandardMaterial({
-        color: 0x050505,
-        roughness: 0.1,
-        metalness: 0.8
-    });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    scene.add(floor);
+// ENVIRONMENT (REALISTIC SPONZA ATRIUM)
+let mixer; // Animation Mixer (if needed)
 
-    // Grid (Tron Style)
-    const grid = new THREE.GridHelper(floorSize, 40, 0x00ffff, 0x111111);
-    grid.position.y = 0.01; // Slightly above floor to avoid z-fighting
-    scene.add(grid);
+const envLoader = new GLTFLoader();
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
+envLoader.setDRACOLoader(dracoLoader);
 
-    // Physics Floor
-    const floorBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
-    floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-    world.addBody(floorBody);
+// Using the official Three.js example URL for stability
+const sponzaUrl = 'https://threejs.org/examples/models/gltf/Sponza/glTF/Sponza.gltf';
 
-    // 2. Walls (Invisible Physics + Visual Border)
-    const wallHeight = 5;
-    const wallThick = 2;
-    const wallMat = new THREE.MeshStandardMaterial({
-        color: 0x00ffff,
-        emissive: 0x0088ff,
-        emissiveIntensity: 2,
-        transparent: true,
-        opacity: 0.3
-    });
+envLoader.load(sponzaUrl, (gltf) => {
+    const model = gltf.scene;
 
-    const walls = [
-        { w: floorSize, h: wallHeight, d: wallThick, x: 0, z: -floorSize / 2 }, // North
-        { w: floorSize, h: wallHeight, d: wallThick, x: 0, z: floorSize / 2 },  // South
-        { w: wallThick, h: wallHeight, d: floorSize, x: -floorSize / 2, z: 0 }, // West
-        { w: wallThick, h: wallHeight, d: floorSize, x: floorSize / 2, z: 0 }   // East
-    ];
+    // Scale: Sponza is usually large, but let's check scaling.
+    // Usually it needs to be scaled UP if it's the glTF sample, but we'll start 1.0.
+    model.scale.set(1.0, 1.0, 1.0);
+    model.position.set(0, 0, 0);
 
-    walls.forEach(cfg => {
-        // Visual
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(cfg.w, cfg.h, cfg.d), wallMat);
-        mesh.position.set(cfg.x, cfg.h / 2, cfg.z);
-        scene.add(mesh);
+    // Auto-Ground: Measure model and place on floor (Y=0)
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
 
-        // Physics
-        const body = new CANNON.Body({
-            mass: 0,
-            position: new CANNON.Vec3(cfg.x, cfg.h / 2, cfg.z),
-            shape: new CANNON.Box(new CANNON.Vec3(cfg.w / 2, cfg.h / 2, cfg.d / 2))
-        });
-        world.addBody(body);
-    });
+    // If it's too small (e.g. < 5m tall), assume it's miniature and scale up
+    if (size.y < 5) model.scale.set(5.0, 5.0, 5.0);
 
-    // 3. Obstacles (Cover)
-    const obstMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.2 });
-    const obstacles = [
-        { w: 4, h: 3, d: 4, x: 10, z: 10 },
-        { w: 4, h: 3, d: 4, x: -10, z: -10 },
-        { w: 4, h: 3, d: 4, x: 10, z: -10 },
-        { w: 4, h: 3, d: 4, x: -10, z: 10 },
-        { w: 8, h: 1.5, d: 8, x: 0, z: 0 } // Center platform
-    ];
+    // Re-measure after scaling
+    const box2 = new THREE.Box3().setFromObject(model);
+    model.position.y = -box2.min.y; // Align bottom to floor
+    // Center X/Z
+    model.position.x = -center.x * model.scale.x;
+    model.position.z = -center.z * model.scale.z;
 
-    obstacles.forEach(cfg => {
-        // Visual
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(cfg.w, cfg.h, cfg.d), obstMat);
-        mesh.position.set(cfg.x, cfg.h / 2, cfg.z);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        scene.add(mesh);
+    scene.add(model);
 
-        // Neon Edge
-        const edge = new THREE.BoxHelper(mesh, 0xff00ff);
-        scene.add(edge);
+    console.log("Sponza Loaded", size);
 
-        // Physics
-        const body = new CANNON.Body({
-            mass: 0,
-            position: new CANNON.Vec3(cfg.x, cfg.h / 2, cfg.z),
-            shape: new CANNON.Box(new CANNON.Vec3(cfg.w / 2, cfg.h / 2, cfg.d / 2))
-        });
-        world.addBody(body);
-    });
-}
-createCombatArena();
+    // Optional: Hide default fallback if it exists
+    if (typeof fallbackGround !== 'undefined') fallbackGround.visible = false;
+}, undefined, (e) => console.error("Error loading Sponza:", e));
+
+// PHYSICS (Invisible Ground Plane)
+const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), position: new CANNON.Vec3(0, 0, 0) });
+groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+world.addBody(groundBody);
 
 // Fallback invisible plane (legacy compatibility)
 const fallbackGround = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial({ visible: false }));
