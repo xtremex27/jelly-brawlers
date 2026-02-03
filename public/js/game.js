@@ -440,8 +440,5 @@ function loop() {
     const el = document.getElementById('fps-counter'); if (el && clock.getElapsedTime() % 1 < 0.1) el.innerText = Math.round(1 / dt) + " FPS";
 }
 
-composer.render();
-const el = document.getElementById('fps-counter'); if (el && clock.getElapsedTime() % 1 < 0.1) el.innerText = Math.round(1 / dt) + " FPS";
-
 loop();
 window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight); };
