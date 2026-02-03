@@ -24,6 +24,7 @@ const mats = {
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111); // Darker background
 // scene.fog = new THREE.Fog(0x111111, 10, 50); // Optional fog for atmosphere
+scene.fog = new THREE.FogExp2(0x050510, 0.02); // Cyberpunk Fog
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 25, 25); camera.lookAt(0, 0, 0);
@@ -34,10 +35,10 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // LIGHTING
-const ambLight = new THREE.AmbientLight(0xffffff, 0.6); // Brighter Ambient
+const ambLight = new THREE.AmbientLight(0xffffff, 0.1); // Darker Ambient
 scene.add(ambLight);
 
-const hemiLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.5); // Sky/Ground tint
+const hemiLight = new THREE.HemisphereLight(0x4444ff, 0xff00ff, 0.2); // Blue/Purple tint
 scene.add(hemiLight);
 
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -52,39 +53,54 @@ scene.add(dirLight);
 // PHYSICS WORLD
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -15, 0) });
 
-// ENVIRONMENT (PROCEDURAL CITY - FALLBACK)
+// ENVIRONMENT (CYBERPUNK CITY PROCEDURAL)
+const cars = [];
 function createProceduralCity() {
-    // 1. Ground - Concrete
-    const groundGeo = new THREE.PlaneGeometry(100, 100);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+    // 1. Ground - Neon Grid
+    const groundGeo = new THREE.PlaneGeometry(200, 200);
+    const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        roughness: 0.1,
+        metalness: 0.8
+    });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -1;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // Grid Helper for "Tron" look
-    const grid = new THREE.GridHelper(100, 50, 0x444444, 0x111111);
+    // Grid (Cyan/Purple)
+    const grid = new THREE.GridHelper(200, 100, 0x00ffff, 0x220022);
     grid.position.y = -0.99;
     scene.add(grid);
 
-    // 2. Random Buildings
+    // 2. Skyscrapers (Cyberpunk)
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0x34495e, roughness: 0.2 });
 
-    for (let i = 0; i < 40; i++) {
-        const w = Math.random() * 4 + 2;
-        const h = Math.random() * 8 + 4;
-        const d = Math.random() * 4 + 2;
+    for (let i = 0; i < 80; i++) {
+        const w = Math.random() * 5 + 3;
+        const h = Math.random() * 20 + 8; // Taller
+        const d = Math.random() * 5 + 3;
 
-        const x = (Math.random() - 0.5) * 60;
-        const z = (Math.random() - 0.5) * 60;
+        const x = (Math.random() - 0.5) * 120;
+        const z = (Math.random() - 0.5) * 120;
 
-        // Keep spawn clear
-        if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
+        if (Math.abs(x) < 10 && Math.abs(z) < 10) continue; // Clear spawn
 
-        // Visual
-        const mesh = new THREE.Mesh(boxGeo, boxMat);
+        // Material: Dark with Emissive "Windows" or Edges
+        const isNeon = Math.random() > 0.7;
+        const color = isNeon ? (Math.random() > 0.5 ? 0x00ffff : 0xff00ff) : 0x222222;
+        const emissive = isNeon ? color : 0x000000;
+
+        const mat = new THREE.MeshStandardMaterial({
+            color: color,
+            roughness: 0.2,
+            metalness: 0.6,
+            emissive: emissive,
+            emissiveIntensity: isNeon ? 2.0 : 0.0
+        });
+
+        const mesh = new THREE.Mesh(boxGeo, mat);
         mesh.position.set(x, h / 2 - 1, z);
         mesh.scale.set(w, h, d);
         mesh.castShadow = true;
@@ -98,6 +114,25 @@ function createProceduralCity() {
             shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2))
         });
         world.addBody(body);
+
+        // Add random "Light" on some buildings
+        if (isNeon) {
+            const light = new THREE.PointLight(color, 2, 20);
+            light.position.set(x, h / 2, z);
+            scene.add(light);
+        }
+    }
+
+    // 3. Floating Cars (Visual Only)
+    const carGeo = new THREE.BoxGeometry(0.5, 0.2, 1);
+    for (let i = 0; i < 30; i++) {
+        const mesh = new THREE.Mesh(carGeo, new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0xff0000 : 0xffff00 }));
+        const y = Math.random() * 15 + 5; // Flying high
+        const speed = (Math.random() * 20 + 10) * (Math.random() > 0.5 ? 1 : -1);
+        const z = (Math.random() - 0.5) * 100;
+        mesh.position.set(0, y, z);
+        scene.add(mesh);
+        cars.push({ mesh, speed, limit: 100 });
     }
 }
 createProceduralCity();
@@ -690,12 +725,23 @@ function addRemotePlayer(info) { otherPlayers[info.id] = new Character(info.type
 
 const clock = new THREE.Clock();
 function loop() {
+
+
+
     requestAnimationFrame(loop);
+
     let dt = clock.getDelta();
     const t = clock.getElapsedTime();
 
     // Cap dt for mobile stability (prevents flying/tunneling)
     if (dt > 0.1) dt = 0.1;
+
+    // Update Cars
+    cars.forEach(car => {
+        car.mesh.position.x += car.speed * dt;
+        if (car.mesh.position.x > car.limit) car.mesh.position.x = -car.limit;
+        if (car.mesh.position.x < -car.limit) car.mesh.position.x = car.limit;
+    });
 
     // CAMERA STATE MACHINE
     if (gameState === 'start') {
