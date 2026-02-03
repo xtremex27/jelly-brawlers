@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as CANNON from 'cannon-es';
 import { EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, VignetteEffect, GodRaysEffect } from 'postprocessing';
 
@@ -157,11 +158,23 @@ class Weapon {
     }
     update() {
         if (this.equippedBy) {
-            const handPos = new THREE.Vector3(); this.equippedBy.armR.children[0].getWorldPosition(handPos);
-            this.mesh.position.copy(handPos); this.mesh.quaternion.copy(this.equippedBy.mesh.quaternion); this.mesh.rotateX(Math.PI / 2);
+            // New GLTF Attachment Logic
+            const charMesh = this.equippedBy.mesh;
+
+            // Simple offset for right hand
+            const handOffset = new THREE.Vector3(0.4, 0.8, 0.4);
+            handOffset.applyQuaternion(charMesh.quaternion);
+
+            this.mesh.position.copy(charMesh.position).add(handOffset);
+            this.mesh.quaternion.copy(charMesh.quaternion);
+            this.mesh.rotateX(Math.PI / 2);
+
             if (this.equippedBy.isAttacking) {
-                this.mesh.rotation.x -= 1.0;
-                this.mesh.position.y -= 0.5;
+                // Procedural swing for melee
+                if (this.type !== 'gun') {
+                    this.mesh.rotation.x -= 1.0;
+                    this.mesh.position.y -= 0.5;
+                }
             }
         } else {
             this.mesh.rotation.y += 0.05;
@@ -181,19 +194,51 @@ class Character {
     constructor(type, isBot = false, startPos, remoteId = null) {
         this.isBot = isBot; this.remoteId = remoteId; this.maxHp = 5; this.hp = this.maxHp; this.isDead = false; this.xp = 0; this.level = 1; this.mesh = new THREE.Group(); this.weapon = null;
         this.colorVal = remoteId ? 0x9b59b6 : (isBot ? 0xFF3333 : (type === 'cat' ? 0x74B9FF : 0xFDCB6E));
-        this.mat = new THREE.MeshPhysicalMaterial({ color: this.colorVal, roughness: 0.45, clearcoat: 0.4, roughnessMap: noiseTex, bumpMap: noiseTex, bumpScale: 0.005, transparent: !!remoteId, opacity: remoteId ? 0.8 : 1.0 });
-        this.buildBody(type);
+
+        // MIXER & ANIMATIONS
+        this.mixer = null;
+        this.actions = {};
+        this.activeAction = null;
+        this.isLoaded = false;
+
+        // Load GLTF
+        const loader = new GLTFLoader();
+        // Using Three.js Example Soldier Model
+        loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
+            const model = gltf.scene;
+            model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+            // Scaling to fit physics body
+            model.scale.set(1.5, 1.5, 1.5);
+            model.position.y = -0.5; // Offset to feet
+            model.rotation.y = Math.PI; // Face forward
+
+            this.mesh.add(model);
+
+            // Animations
+            this.mixer = new THREE.AnimationMixer(model);
+            const anims = gltf.animations;
+
+            // Map Animations (Soldier has: Idle, Run, TPose, Walk)
+            this.actions['Idle'] = this.mixer.clipAction(anims.find(a => a.name === 'Idle'));
+            this.actions['Run'] = this.mixer.clipAction(anims.find(a => a.name === 'Run'));
+            this.actions['TPose'] = this.mixer.clipAction(anims.find(a => a.name === 'TPose'));
+
+            // Start Idle
+            this.transitionTo('Idle');
+            this.isLoaded = true;
+        });
+
         if (!remoteId) {
             this.bodyRadius = 0.5;
             this.body = new CANNON.Body({ mass: 50, shape: new CANNON.Sphere(this.bodyRadius), position: new CANNON.Vec3(startPos.x, 5, startPos.z), material: mats.p, linearDamping: 0.1, angularDamping: 1.0, fixedRotation: true });
             world.addBody(this.body);
 
-            // Fix: Collision-based Ground Detection (Prevents Flying 100%)
+            // Collision-based Ground Detection
             this.canJump = false;
             this.body.addEventListener('collide', (e) => {
                 const contactNormal = new CANNON.Vec3();
                 e.contact.ni.copy(contactNormal);
-                // Check if contact is from below (Ground)
                 if (Math.abs(contactNormal.dot(new CANNON.Vec3(0, 1, 0))) > 0.5) {
                     this.canJump = true;
                 }
@@ -203,22 +248,27 @@ class Character {
         scene.add(this.mesh);
         this.atkStart = 0; this.isAttacking = false; this.originalColor = new THREE.Color(this.colorVal);
     }
-    buildBody(type) {
-        const torso = new THREE.Mesh(new RoundedBoxGeometry(0.85, 0.8, 0.7, 4, 0.15), this.mat); torso.position.y = 0.2; torso.castShadow = true; this.mesh.add(torso);
-        const snout = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.25, 0.1, 2, 0.05), this.mat); snout.position.set(0, -0.1, 0.35); torso.add(snout);
-        const eyeG = new THREE.SphereGeometry(0.09); const eyeM = new THREE.MeshStandardMaterial({ color: 0x111 });
-        const e1 = new THREE.Mesh(eyeG, eyeM); e1.position.set(-0.2, 0.15, 0.35); const e2 = e1.clone(); e2.position.x *= -1; torso.add(e1); torso.add(e2);
-        const limbG = new RoundedBoxGeometry(0.2, 0.45, 0.2, 4, 0.1);
-        this.legL = this.makeLimb(limbG, -0.22, -0.3, 0, torso); this.legR = this.makeLimb(limbG, 0.22, -0.3, 0, torso);
-        this.armL = this.makeLimb(limbG, -0.5, 0.1, 0, torso); this.armR = this.makeLimb(limbG, 0.5, 0.1, 0, torso);
-        const earG = type === 'bunny' ? new RoundedBoxGeometry(0.15, 0.6, 0.1, 4, 0.05) : new RoundedBoxGeometry(0.2, 0.2, 0.1, 4, 0.05);
-        const ear = new THREE.Mesh(earG, this.mat); if (type === 'bunny') { ear.position.set(-0.25, 0.6, 0); ear.rotation.x = -0.1; ear.rotation.z = 0.2; } else { ear.position.set(-0.35, 0.5, 0); }
-        const ear2 = ear.clone(); ear2.position.x *= -1; if (type === 'bunny') ear2.rotation.z *= -1; torso.add(ear); torso.add(ear2);
+
+    transitionTo(name) {
+        if (!this.actions[name]) return;
+        const next = this.actions[name];
+        if (this.activeAction === next) return;
+
+        if (this.activeAction) {
+            this.activeAction.fadeOut(0.2);
+        }
+        next.reset().fadeIn(0.2).play();
+        this.activeAction = next;
     }
-    makeLimb(g, x, y, z, p) { const piv = new THREE.Group(); piv.position.set(x, y, z); const m = new THREE.Mesh(g, this.mat); m.position.y = -0.2; m.castShadow = true; piv.add(m); p.add(piv); return piv; }
+
     update(dt, time, playerTarget) {
         if (this.isDead) return;
-        if (!this.remoteId) this.mesh.position.copy(this.body.position);
+
+        // MIXER UPDATE
+        if (this.mixer) this.mixer.update(dt);
+
+        // SYNC PHYSICS
+        if (!this.remoteId && this.body) this.mesh.position.copy(this.body.position);
 
         // Fix: Velocity Cap (Anti-Speed Hack)
         const maxSpeed = 20;
@@ -230,44 +280,49 @@ class Character {
         let inputX = joy.x, inputZ = joy.z;
         if (keys['w'] || keys['arrowup']) inputZ = -1; if (keys['s'] || keys['arrowdown']) inputZ = 1; if (keys['a'] || keys['arrowleft']) inputX = -1; if (keys['d'] || keys['arrowright']) inputX = 1;
 
-        // Note: Joystick logic (joy.x/z) is already normalized in event listeners, but we clamp here for safety.
-        // Fix: Enforce Input Magnitude Limit (1.0) for consistent speed
+        // Joystick normalization
         const len = Math.sqrt(inputX ** 2 + inputZ ** 2);
         if (len > 1.0) { inputX /= len; inputZ /= len; }
 
         if (this.isBot) {
-            // ... Bot Logic kept simple ...
             const dx = playerTarget.x - this.body.position.x, dz = playerTarget.z - this.body.position.z; const dist = Math.sqrt(dx * dx + dz * dz);
             if (dist < 15 && dist > 1.1) { inputX = dx / dist; inputZ = dz / dist; }
             this.body.velocity.x = inputX * 3.5; this.body.velocity.z = inputZ * 3.5;
         }
         else if (!this.remoteId && gameState === 'playing') {
-            // Apply Movement
             const moveSpeed = 12; // Static PC/Mobile Speed
             this.body.velocity.x = inputX * moveSpeed;
             this.body.velocity.z = inputZ * moveSpeed;
         }
 
         let speed = 0;
-        if (!this.remoteId) { const v = this.body.velocity; speed = Math.sqrt(v.x ** 2 + v.z ** 2); } else { speed = 5; } // Fake remote speed
+        if (!this.remoteId) { const v = this.body.velocity; speed = Math.sqrt(v.x ** 2 + v.z ** 2); } else { speed = 5; }
 
-        if (this.isAttacking) {
-            const prog = (Date.now() - this.atkStart) / 300; if (prog >= 1) this.isAttacking = false;
-            else { this.mesh.children[0].rotation.y += 0.8; this.armR.rotation.x = -2.0; }
-        } else { this.mesh.children[0].rotation.y = THREE.MathUtils.lerp(this.mesh.children[0].rotation.y, 0, 0.2); this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, 0, 0.1); }
+        // Animation State Logic
+        if (this.isLoaded) {
+            let targetAnim = 'Idle';
+
+            if (speed > 1.0) {
+                targetAnim = 'Run';
+            }
+
+            if (this.weapon && this.weapon.type === 'gun') {
+                if (targetAnim === 'Idle') targetAnim = 'TPose';
+            }
+
+            this.transitionTo(targetAnim);
+        }
 
         if (gameState === 'playing' && !this.isBot && !this.remoteId) {
-            // Gun Aiming & Arm Position
+            // Gun Aiming
             if (this.weapon && this.weapon.type === 'gun') {
-                this.armR.rotation.x = -1.5; // Point arm forward
-
                 if (!joy.on) {
                     // PC: Face Mouse
                     this.mesh.lookAt(mouseWorldPos.x, this.mesh.position.y, mouseWorldPos.z);
                 }
             }
 
-            // Movement Rotation (Melee OR Joystick/Mobile Gun)
+            // Movement Rotation
             if (speed > 0.5) {
                 if (!this.weapon || this.weapon.type !== 'gun' || joy.on) {
                     const v = this.body.velocity; const angle = Math.atan2(v.x, v.z);
@@ -275,35 +330,19 @@ class Character {
                 }
             }
         }
-
-        if (speed > 0.5) {
-            const w = time * 15;
-            this.legL.rotation.x = Math.sin(w) * 0.8; this.legR.rotation.x = Math.sin(w + Math.PI) * 0.8;
-            this.armL.rotation.x = Math.sin(w + Math.PI) * 0.8;
-
-            if (!this.weapon || this.weapon.type !== 'gun') {
-                this.armR.rotation.x = Math.sin(w) * 0.8;
-            }
-
-            this.mesh.children[0].position.y = 0.2 + Math.abs(Math.sin(w)) * 0.05;
-        } else {
-            this.legL.rotation.x = 0; this.legR.rotation.x = 0;
-            this.armL.rotation.x = 0;
-
-            if (!this.isAttacking && (!this.weapon || this.weapon.type !== 'gun')) {
-                this.armR.rotation.x = 0;
-            }
-
-            this.mesh.children[0].position.y = 0.2;
-        }
     }
+
     takeHit(forceVec, dmg = 1) {
         if (this.isDead || this.remoteId) return; this.hp -= dmg;
-        this.mat.color.setHex(0xFFFFFF); setTimeout(() => this.mat.color.copy(this.originalColor), 100);
+        // Flash effect (might fail if material is complex gltf, but try/catch or simple check needed? 
+        // GLTF materials are usually Standard, so emissive works.
+        // We'll skip complex flash for now to avoid crashes or traverse model.
+
         this.body.applyImpulse(forceVec, this.body.position);
         if (!this.isBot) { const pct = (this.hp / this.maxHp) * 100; document.getElementById('health-bar-fill').style.width = pct + '%'; }
         if (this.hp <= 0) this.die();
     }
+
     die() {
         this.isDead = true; if (this.body) { this.body.velocity.set(0, 15, 0); this.body.collisionFilterMask = 0; }
         if (this.isBot && player) player.gainXP(50);
@@ -313,52 +352,41 @@ class Character {
             if (!this.remoteId && !this.isBot) location.reload();
         }, 2000);
     }
+
     gainXP(amount) {
         this.xp += amount; const maxXP = this.level * 100; const pct = Math.min((this.xp / maxXP) * 100, 100);
         document.getElementById('xp-bar-fill').style.width = pct + '%';
         if (this.xp >= maxXP) {
             this.level++; this.xp = 0; this.maxHp++; this.hp = this.maxHp;
             document.getElementById('xp-level').innerText = 'LVL ' + this.level; document.getElementById('health-bar-fill').style.width = '100%'; document.getElementById('xp-bar-fill').style.width = '0%';
-            this.mat.emissive.setHex(0xffff00); setTimeout(() => this.mat.emissive.setHex(0x000000), 500);
         }
     }
+
     attack(targetList) {
         if (this.isAttacking || this.isDead) return; this.isAttacking = true; this.atkStart = Date.now();
         if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
 
-        if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
-
         if (this.weapon && this.weapon.type === 'gun') {
-            // Shoot
-            // Calculate direction check from character forward
             const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion).normalize();
-
-            // Spawn bullet
             const bSpeed = 30;
-            const b = new Bullet(
-                this.mesh.position.x + dir.x * 1,
-                this.mesh.position.y + 0.5,
-                this.mesh.position.z + dir.z * 1,
-                dir.x * bSpeed,
-                dir.z * bSpeed,
-                this.remoteId || 'player'
-            );
+            // Spawn relative to character center
+            const spawnX = this.mesh.position.x + dir.x * 1;
+            const spawnY = this.mesh.position.y + 1.5; // Higher for soldier model
+            const spawnZ = this.mesh.position.z + dir.z * 1;
+
+            const b = new Bullet(spawnX, spawnY, spawnZ, dir.x * bSpeed, dir.z * bSpeed, this.remoteId || 'player');
             bullets.push(b);
 
             if (socket) socket.emit('shoot', {
-                x: b.mesh.position.x, y: b.mesh.position.y, z: b.mesh.position.z,
+                x: spawnX, y: spawnY, z: spawnZ,
                 vx: b.velocity.x, vz: b.velocity.z
             });
 
-            // Recoil
-            this.mesh.children[0].rotation.x -= 0.2;
-            setTimeout(() => this.mesh.children[0].rotation.x += 0.2, 100);
-
-            this.isAttacking = false; // Instant reset for guns (fire rate not implemented yet)
+            this.isAttacking = false;
             return;
         }
 
-        // Fix: Stop current momentum before lunging (Prevents Speed Hack)
+        // Melee Lunge
         if (this.body) {
             this.body.velocity.x = 0; this.body.velocity.z = 0;
             const f = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion);
@@ -372,12 +400,9 @@ class Character {
                 if (this.mesh.position.distanceTo(foe.mesh.position) < range) {
                     const k = new THREE.Vector3().subVectors(foe.mesh.position, this.mesh.position).normalize();
                     const force = new CANNON.Vec3(k.x * knockback, 10, k.z * knockback);
-
-                    // Local Hit
                     if (!foe.remoteId) {
                         foe.takeHit(force, dmg);
                     }
-                    // Remote Hit
                     else if (socket) {
                         socket.emit('hitPlayer', { targetId: foe.remoteId, damage: dmg });
                     }
@@ -385,13 +410,12 @@ class Character {
             });
         }
     }
+
     jump() {
         if (gameState !== 'playing') return;
-
-        // Fix: Use physical collision flag (100% reliable ground check)
         if (this.canJump) {
             this.body.velocity.y = 8;
-            this.canJump = false; // Cannot jump again until collision resets this
+            this.canJump = false;
         }
     }
 }
