@@ -397,33 +397,39 @@ function loop() {
                 // Kill Outward Velocity (Fixes vibration/sticking)
                 const v = new THREE.Vector3(player.body.velocity.x, 0, player.body.velocity.z);
                 const n = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)); // Normal pointing out
-                const dot = v.dot(n);
-                if (dot > 0) { // If moving out
-                    player.body.velocity.x -= n.x * dot;
-                    player.body.velocity.z -= n.z * dot;
+                if (this.mesh.position.distanceTo(player.mesh.position) < 1.5 && !player.weapon && !this.holder) {
+                    this.pickup(player);
+                    if (socket) socket.emit('playerPickup', { id: this.id, type: this.type });
+                }
+            } else {
+                this.mesh.position.copy(this.holder.mesh.position).add(new THREE.Vector3(0.5, 0.5, 0.5).applyQuaternion(this.holder.mesh.quaternion));
+                this.mesh.quaternion.copy(this.holder.mesh.quaternion);
+                if (this.holder.isAttacking) {
+                    this.mesh.rotation.x -= 1.0;
+                    this.mesh.position.y -= 0.5;
                 }
             }
-
-            player.update(dt, t, null);
-
-            // Camera Follow (Moved AFTER player update)
-            const targetPos = new THREE.Vector3(player.mesh.position.x, 20, player.mesh.position.z + 25);
-            camera.position.lerp(targetPos, 0.1);
-            camera.lookAt(player.mesh.position);
-
-            enemies.forEach(b => b.update(dt, t, player.body.position));
-            weapons.forEach(w => w.update());
-            if (socket) socket.emit('playerMovement', {
-                x: player.mesh.position.x,
-                y: player.mesh.position.y,
-                z: player.mesh.position.z,
-                rotation: player.mesh.rotation.y
-            });
         }
     }
 
-    composer.render();
-    const el = document.getElementById('fps-counter'); if (el && clock.getElapsedTime() % 1 < 0.1) el.innerText = Math.round(1 / dt) + " FPS";
+    // ... inside socket block ...
+    socket.on('playerDied', (data) => {
+        const target = data.id === socket.id ? player : otherPlayers[data.id];
+        if (target) target.die();
+    });
+
+    socket.on('playerPickup', (data) => {
+        if (otherPlayers[data.playerId]) {
+            // Find nearest free weapon of that type
+            const w = weapons.find(w => w.type === data.type && !w.holder);
+            if (w) w.pickup(otherPlayers[data.playerId]);
+        }
+    });
+}
+    }
+
+composer.render();
+const el = document.getElementById('fps-counter'); if (el && clock.getElapsedTime() % 1 < 0.1) el.innerText = Math.round(1 / dt) + " FPS";
 }
 loop();
 window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight); };
