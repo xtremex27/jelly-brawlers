@@ -247,44 +247,114 @@ class Character {
     }
 }
 
-// ... later in file ...
+let player = null; const enemies = []; const weapons = []; const otherPlayers = {}; let socket = null;
+const composer = new EffectComposer(renderer);
+const godRaysEffect = new GodRaysEffect(camera, sunMesh, { resolutionScale: 0.5, density: 0.96, decay: 0.95, weight: 1.0, exposure: 1.0, samples: 60, clampMax: 1.0 });
+const bloom = new BloomEffect({ intensity: 1.5, luminanceThreshold: 0.2, luminanceSmoothing: 0.8 });
+const vignette = new VignetteEffect({ offset: 0.2, darkness: 0.6 });
+composer.addPass(new RenderPass(scene, camera)); composer.addPass(new EffectPass(camera, new SMAAEffect(), godRaysEffect, bloom, vignette));
 
-// Enable Physics on Player
-lobbyChar.body.type = CANNON.Body.DYNAMIC;
-lobbyChar.body.mass = 50;
-lobbyChar.body.updateMassProperties();
-lobbyChar.body.position.set(0, 1.5, 0); // Fix: Lower spawn height
+const joy = { x: 0, z: 0, on: false }, keys = {};
+const jZ = document.getElementById('joystick-zone'), jN = document.getElementById('joystick-nipple'); let jC = { x: 0, y: 0 };
+const mv = (cx, cy) => { const dx = cx - jC.x, dy = cy - jC.y, a = Math.atan2(dy, dx), d = Math.min(Math.sqrt(dx * dx + dy * dy), 40); jN.style.transform = `translate(calc(-50% + ${Math.cos(a) * d}px),calc(-50% + ${Math.sin(a) * d}px))`; joy.x = dx / 40; joy.z = dy / 40; };
+jZ.addEventListener('touchstart', e => { joy.on = true; const r = document.getElementById('joystick-base').getBoundingClientRect(); jC = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; mv(e.touches[0].clientX, e.touches[0].clientY); });
+jZ.addEventListener('touchmove', e => { if (joy.on) mv(e.touches[0].clientX, e.touches[0].clientY); });
+jZ.addEventListener('touchend', e => { joy.on = false; joy.x = 0; joy.z = 0; jN.style.transform = 'translate(-50%,-50%)'; });
+jZ.addEventListener('mousedown', e => { joy.on = true; const r = document.getElementById('joystick-base').getBoundingClientRect(); jC = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; mv(e.clientX, e.clientY); });
+window.addEventListener('mousemove', e => { if (joy.on) mv(e.clientX, e.clientY); });
+window.addEventListener('mouseup', e => { joy.on = false; joy.x = 0; joy.z = 0; jN.style.transform = 'translate(-50%,-50%)'; });
 
-// Spawn Enemies & Weapons
-enemies.length = 0; // No bots for PvP
-weapons.length = 0; weapons.push(new Weapon('bat', 2, 2)); weapons.push(new Weapon('sword', -2, 0)); weapons.push(new Weapon('bat', 0, -4));
+const bindBtn = (id, fn) => { const b = document.getElementById(id); if (b) { b.addEventListener('touchstart', e => { e.preventDefault(); fn() }); b.addEventListener('mousedown', e => { e.preventDefault(); fn() }); } }
+bindBtn('btn-attack', () => player?.attack([...enemies, ...Object.values(otherPlayers)])); bindBtn('btn-jump', () => player?.jump());
+window.addEventListener('keydown', e => {
+    if (e.key === ' ') e.preventDefault();
+    keys[e.key.toLowerCase()] = true;
+    if (e.key === ' ' && player) player.jump();
+    if (e.key === 'k' && player) player.attack([...enemies, ...Object.values(otherPlayers)]);
+});
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-// Socket
-try {
-    if (!socket) {
-        socket = io();
-        socket.emit('joinGame', { x: 0, z: 0, type: 'bear', hp: 5 });
-        socket.on('currentPlayers', (players) => { Object.keys(players).forEach(id => { if (id !== socket.id) addRemotePlayer(players[id]); }); });
-        socket.on('newPlayer', (info) => addRemotePlayer(info));
-        socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, info.y || 0, info.z); } });
-        socket.on('playerAttacked', (data) => { if (otherPlayers[data.id]) otherPlayers[data.id].attack(null); });
-        socket.on('playerDisconnected', (id) => { if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; } });
+// === GAME STATE MANAGEMENT ===
+let gameState = 'start'; // start, lobby, playing
+let lobbyChar = null; // Character in lobby
 
-        socket.on('playerHit', (data) => {
-            const target = data.id === socket.id ? player : otherPlayers[data.id];
-            if (target) {
-                target.takeHit(new CANNON.Vec3(0, 10, 0), 0);
-                target.hp = data.hp;
-                if (target === player) document.getElementById('health-bar-fill').style.width = (target.hp / target.maxHp) * 100 + '%';
-            }
-        });
+// 1. START SCREEN
+document.getElementById('btn-enter').addEventListener('click', () => {
+    document.getElementById('start-screen').classList.remove('active');
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('lobby-screen').classList.remove('hidden');
+    document.getElementById('lobby-screen').classList.add('active');
+    gameState = 'lobby';
 
-        socket.on('playerDied', (data) => {
-            const target = data.id === socket.id ? player : otherPlayers[data.id];
-            if (target) target.die();
-        });
-    }
-} catch (e) { }
+    // Create Preview Character
+    lobbyChar = new Character('bear', false, { x: 0, z: 0 });
+    lobbyChar.body.type = CANNON.Body.KINEMATIC; // No gravity
+    lobbyChar.body.position.set(0, 0, 0); // Force ground position
+    lobbyChar.mesh.position.set(0, 0, 0);
+    player = lobbyChar;
+});
+
+// 2. LOBBY CONFIG
+document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        const color = parseInt(e.target.dataset.color);
+        if (lobbyChar) {
+            lobbyChar.mat.color.setHex(color);
+            lobbyChar.originalColor.setHex(color);
+        }
+    });
+});
+
+// 3. START MATCH
+document.getElementById('btn-play').addEventListener('click', function (e) {
+    this.blur(); // Remove focus to prevent Space from triggering this again
+
+    document.getElementById('lobby-screen').classList.remove('active');
+    document.getElementById('lobby-screen').classList.add('hidden');
+    document.getElementById('game-ui').classList.remove('hidden');
+
+    gameState = 'playing';
+
+    // Cleanup existing entities
+    enemies.forEach(e => { scene.remove(e.mesh); world.removeBody(e.body); });
+    weapons.forEach(w => { scene.remove(w.mesh); world.removeBody(w.body); });
+
+    // Enable Physics on Player
+    lobbyChar.body.type = CANNON.Body.DYNAMIC;
+    lobbyChar.body.mass = 50;
+    lobbyChar.body.updateMassProperties();
+    lobbyChar.body.position.set(0, 1.5, 0); // Fix: Lower spawn height
+
+    // Spawn Enemies & Weapons
+    enemies.length = 0; // No bots for PvP
+    weapons.length = 0; weapons.push(new Weapon('bat', 2, 2)); weapons.push(new Weapon('sword', -2, 0)); weapons.push(new Weapon('bat', 0, -4));
+
+    // Socket
+    try {
+        if (!socket) {
+            socket = io();
+            socket.emit('joinGame', { x: 0, z: 0, type: 'bear', hp: 5 });
+            socket.on('currentPlayers', (players) => { Object.keys(players).forEach(id => { if (id !== socket.id) addRemotePlayer(players[id]); }); });
+            socket.on('newPlayer', (info) => addRemotePlayer(info));
+            socket.on('playerMoved', (info) => { if (otherPlayers[info.id]) { otherPlayers[info.id].mesh.position.set(info.x, info.y || 0, info.z); } });
+            socket.on('playerAttacked', (data) => { if (otherPlayers[data.id]) otherPlayers[data.id].attack(null); });
+            socket.on('playerDisconnected', (id) => { if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; } });
+
+            socket.on('playerHit', (data) => {
+                const target = data.id === socket.id ? player : otherPlayers[data.id];
+                if (target) {
+                    target.takeHit(new CANNON.Vec3(0, 10, 0), 0);
+                    target.hp = data.hp;
+                    if (target === player) document.getElementById('health-bar-fill').style.width = (target.hp / target.maxHp) * 100 + '%';
+                }
+            });
+
+            socket.on('playerDied', (data) => {
+                const target = data.id === socket.id ? player : otherPlayers[data.id];
+                if (target) target.die();
+            });
+        }
+    } catch (e) { }
 });
 
 function addRemotePlayer(info) { otherPlayers[info.id] = new Character(info.type, false, { x: info.x, z: info.z }, info.id); }
