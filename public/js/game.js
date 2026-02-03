@@ -62,8 +62,8 @@ const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
 envLoader.setDRACOLoader(dracoLoader);
 
-// Using the official Three.js example URL for stability
-const sponzaUrl = 'https://threejs.org/examples/models/gltf/Sponza/glTF/Sponza.gltf';
+// Using the official Three.js example URL (Raw GitHub Content for reliability)
+const sponzaUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Sponza/glTF/Sponza.gltf';
 
 envLoader.load(sponzaUrl, (gltf) => {
     const model = gltf.scene;
