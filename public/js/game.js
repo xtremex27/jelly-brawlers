@@ -136,10 +136,21 @@ class Character {
             this.bodyRadius = 0.5;
             this.body = new CANNON.Body({ mass: 50, shape: new CANNON.Sphere(this.bodyRadius), position: new CANNON.Vec3(startPos.x, 5, startPos.z), material: mats.p, linearDamping: 0.1, angularDamping: 1.0, fixedRotation: true });
             world.addBody(this.body);
+
+            // Fix: Collision-based Ground Detection (Prevents Flying 100%)
+            this.canJump = false;
+            this.body.addEventListener('collide', (e) => {
+                const contactNormal = new CANNON.Vec3();
+                e.contact.ni.copy(contactNormal);
+                // Check if contact is from below (Ground)
+                if (Math.abs(contactNormal.dot(new CANNON.Vec3(0, 1, 0))) > 0.5) {
+                    this.canJump = true;
+                }
+            });
+
         } else { this.mesh.position.set(startPos.x, 0, startPos.z); }
         scene.add(this.mesh);
         this.atkStart = 0; this.isAttacking = false; this.originalColor = new THREE.Color(this.colorVal);
-        this.lastJump = 0; // Fix: Jump Cooldown
     }
     buildBody(type) {
         const torso = new THREE.Mesh(new RoundedBoxGeometry(0.85, 0.8, 0.7, 4, 0.15), this.mat); torso.position.y = 0.2; torso.castShadow = true; this.mesh.add(torso);
@@ -285,24 +296,48 @@ const bloom = new BloomEffect({ intensity: 1.5, luminanceThreshold: 0.2, luminan
 const vignette = new VignetteEffect({ offset: 0.2, darkness: 0.6 });
 composer.addPass(new RenderPass(scene, camera)); composer.addPass(new EffectPass(camera, new SMAAEffect(), godRaysEffect, bloom, vignette));
 
-const joy = { x: 0, z: 0, on: false }, keys = {};
+const joy = { x: 0, z: 0, id: null }, keys = {};
 const jZ = document.getElementById('joystick-zone'), jN = document.getElementById('joystick-nipple'); let jC = { x: 0, y: 0 };
 const mv = (cx, cy) => {
     const dx = cx - jC.x, dy = cy - jC.y;
     const a = Math.atan2(dy, dx);
     const d = Math.min(Math.sqrt(dx * dx + dy * dy), 40);
     jN.style.transform = `translate(calc(-50% + ${Math.cos(a) * d}px),calc(-50% + ${Math.sin(a) * d}px))`;
-    // Fix: Normalize input so it never exceeds 1.0
-    const force = d / 40;
-    joy.x = Math.cos(a) * force;
-    joy.z = Math.sin(a) * force;
+    const force = d / 40; joy.x = Math.cos(a) * force; joy.z = Math.sin(a) * force;
 };
-jZ.addEventListener('touchstart', e => { joy.on = true; const r = document.getElementById('joystick-base').getBoundingClientRect(); jC = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; mv(e.touches[0].clientX, e.touches[0].clientY); });
-jZ.addEventListener('touchmove', e => { if (joy.on) mv(e.touches[0].clientX, e.touches[0].clientY); });
-jZ.addEventListener('touchend', e => { joy.on = false; joy.x = 0; joy.z = 0; jN.style.transform = 'translate(-50%,-50%)'; });
+
+jZ.addEventListener('touchstart', e => {
+    if (joy.id !== null) return; // Already touching
+    const t = e.changedTouches[0];
+    joy.id = t.identifier;
+    joy.on = true;
+    const r = document.getElementById('joystick-base').getBoundingClientRect();
+    jC = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    mv(t.clientX, t.clientY);
+});
+jZ.addEventListener('touchmove', e => {
+    if (joy.id === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === joy.id) {
+            mv(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+            break;
+        }
+    }
+});
+jZ.addEventListener('touchend', e => {
+    if (joy.id === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === joy.id) {
+            joy.id = null; joy.on = false; joy.x = 0; joy.z = 0;
+            jN.style.transform = 'translate(-50%,-50%)';
+            break;
+        }
+    }
+});
+// Mouse fallback
 jZ.addEventListener('mousedown', e => { joy.on = true; const r = document.getElementById('joystick-base').getBoundingClientRect(); jC = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; mv(e.clientX, e.clientY); });
 window.addEventListener('mousemove', e => { if (joy.on) mv(e.clientX, e.clientY); });
-window.addEventListener('mouseup', e => { joy.on = false; joy.x = 0; joy.z = 0; jN.style.transform = 'translate(-50%,-50%)'; });
+window.addEventListener('mouseup', e => { if (joy.on) { joy.on = false; joy.x = 0; joy.z = 0; jN.style.transform = 'translate(-50%,-50%)'; } });
 
 const bindBtn = (id, fn) => { const b = document.getElementById(id); if (b) { b.addEventListener('touchstart', e => { e.preventDefault(); fn() }); b.addEventListener('mousedown', e => { e.preventDefault(); fn() }); } }
 bindBtn('btn-attack', () => player?.attack([...enemies, ...Object.values(otherPlayers)])); bindBtn('btn-jump', () => player?.jump());
