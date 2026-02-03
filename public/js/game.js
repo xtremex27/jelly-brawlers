@@ -4,6 +4,12 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import * as CANNON from 'cannon-es';
 import { EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, VignetteEffect, GodRaysEffect } from 'postprocessing';
 
+// GLOBAL MOUSE FOR AIMING
+const mouse = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Ground plane for intersection
+const mouseWorldPos = new THREE.Vector3();
+
 // ... (Utils same as before) ...
 function getStoneTexture() {
     const s = 1024, c = document.createElement('canvas'); c.width = s; c.height = s;
@@ -89,14 +95,59 @@ for (let i = 0; i < 8; i++) {
 const chainGeo = new THREE.TorusGeometry(18, 0.2, 8, 64); const chainMat = new THREE.MeshStandardMaterial({ color: 0x000000, metalness: 0.8, roughness: 0.4 });
 const chain = new THREE.Mesh(chainGeo, chainMat); chain.rotation.x = -Math.PI / 2; chain.position.y = 1; scene.add(chain);
 
+// BULLETS
+const bullets = [];
+const bulletGeo = new THREE.SphereGeometry(0.2, 8, 8);
+const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+
+class Bullet {
+    constructor(x, y, z, vx, vz, ownerId) {
+        this.mesh = new THREE.Mesh(bulletGeo, bulletMat);
+        this.mesh.position.set(x, y, z);
+        this.velocity = new THREE.Vector3(vx, 0, vz);
+        this.ownerId = ownerId;
+        this.life = 1.0; // Seconds to live
+        scene.add(this.mesh);
+
+        // Add glow light
+        this.light = new THREE.PointLight(0xffff00, 1, 5);
+        this.light.position.copy(this.mesh.position);
+        scene.add(this.light);
+    }
+
+    update(dt) {
+        this.life -= dt;
+        this.mesh.position.addScaledVector(this.velocity, dt);
+        this.light.position.copy(this.mesh.position);
+
+        // Raycast for collision (simple distance check for now)
+        // Check enemies
+        // ... (Check logic in main loop for simplicity/performance)
+
+        if (this.life <= 0) {
+            this.destroy();
+            return false;
+        }
+        return true;
+    }
+
+    destroy() {
+        scene.remove(this.mesh);
+        scene.remove(this.light);
+    }
+}
+
 // WEAPON
 class Weapon {
     constructor(type, x, z) {
         this.type = type; this.mesh = new THREE.Group(); this.equippedBy = null;
-        const mat = new THREE.MeshStandardMaterial({ color: type === 'bat' ? 0x8e44ad : 0xecf0f1, metalness: 0.6, roughness: 0.4 });
+        const mat = new THREE.MeshStandardMaterial({ color: type === 'bat' ? 0x8e44ad : (type === 'gun' ? 0x2c3e50 : 0xecf0f1), metalness: 0.6, roughness: 0.4 });
         if (type === 'bat') {
             const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.4), new THREE.MeshStandardMaterial({ color: 0x333333 })); handle.position.y = -0.3; this.mesh.add(handle);
             const bat = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.06, 1.2), mat); bat.position.y = 0.5; this.mesh.add(bat);
+        } else if (type === 'gun') {
+            const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.3, 0.15), new THREE.MeshStandardMaterial({ color: 0x5e412f })); handle.position.y = -0.2; this.mesh.add(handle);
+            const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.6), mat); barrel.position.set(0, 0, 0.2); this.mesh.add(barrel);
         } else {
             const h = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3), new THREE.MeshStandardMaterial({ color: 0x5e412f })); h.position.y = -0.4; this.mesh.add(h);
             const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.5, 0.05), mat); blade.position.y = 0.5; this.mesh.add(blade);
@@ -205,18 +256,44 @@ class Character {
             else { this.mesh.children[0].rotation.y += 0.8; this.armR.rotation.x = -2.0; }
         } else { this.mesh.children[0].rotation.y = THREE.MathUtils.lerp(this.mesh.children[0].rotation.y, 0, 0.2); this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, 0, 0.1); }
 
-        if (gameState === 'playing' && speed > 0.5 && !this.isBot && !this.remoteId) {
-            const v = this.body.velocity; const angle = Math.atan2(v.x, v.z);
-            this.mesh.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle), 0.2);
+        if (gameState === 'playing' && !this.isBot && !this.remoteId) {
+            // Gun Aiming & Arm Position
+            if (this.weapon && this.weapon.type === 'gun') {
+                this.armR.rotation.x = -1.5; // Point arm forward
+
+                if (!joy.on) {
+                    // PC: Face Mouse
+                    this.mesh.lookAt(mouseWorldPos.x, this.mesh.position.y, mouseWorldPos.z);
+                }
+            }
+
+            // Movement Rotation (Melee OR Joystick/Mobile Gun)
+            if (speed > 0.5) {
+                if (!this.weapon || this.weapon.type !== 'gun' || joy.on) {
+                    const v = this.body.velocity; const angle = Math.atan2(v.x, v.z);
+                    this.mesh.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle), 0.2);
+                }
+            }
         }
 
         if (speed > 0.5) {
             const w = time * 15;
             this.legL.rotation.x = Math.sin(w) * 0.8; this.legR.rotation.x = Math.sin(w + Math.PI) * 0.8;
-            this.armL.rotation.x = Math.sin(w + Math.PI) * 0.8; this.armR.rotation.x = Math.sin(w) * 0.8;
+            this.armL.rotation.x = Math.sin(w + Math.PI) * 0.8;
+
+            if (!this.weapon || this.weapon.type !== 'gun') {
+                this.armR.rotation.x = Math.sin(w) * 0.8;
+            }
+
             this.mesh.children[0].position.y = 0.2 + Math.abs(Math.sin(w)) * 0.05;
         } else {
-            this.legL.rotation.x = 0; this.legR.rotation.x = 0; if (!this.isAttacking && !this.weapon) this.armR.rotation.x = 0; this.armL.rotation.x = 0;
+            this.legL.rotation.x = 0; this.legR.rotation.x = 0;
+            this.armL.rotation.x = 0;
+
+            if (!this.isAttacking && (!this.weapon || this.weapon.type !== 'gun')) {
+                this.armR.rotation.x = 0;
+            }
+
             this.mesh.children[0].position.y = 0.2;
         }
     }
@@ -248,6 +325,38 @@ class Character {
     attack(targetList) {
         if (this.isAttacking || this.isDead) return; this.isAttacking = true; this.atkStart = Date.now();
         if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
+
+        if (!this.isBot && !this.remoteId && socket) socket.emit('playerAttack');
+
+        if (this.weapon && this.weapon.type === 'gun') {
+            // Shoot
+            // Calculate direction check from character forward
+            const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion).normalize();
+
+            // Spawn bullet
+            const bSpeed = 30;
+            const b = new Bullet(
+                this.mesh.position.x + dir.x * 1,
+                this.mesh.position.y + 0.5,
+                this.mesh.position.z + dir.z * 1,
+                dir.x * bSpeed,
+                dir.z * bSpeed,
+                this.remoteId || 'player'
+            );
+            bullets.push(b);
+
+            if (socket) socket.emit('shoot', {
+                x: b.mesh.position.x, y: b.mesh.position.y, z: b.mesh.position.z,
+                vx: b.velocity.x, vz: b.velocity.z
+            });
+
+            // Recoil
+            this.mesh.children[0].rotation.x -= 0.2;
+            setTimeout(() => this.mesh.children[0].rotation.x += 0.2, 100);
+
+            this.isAttacking = false; // Instant reset for guns (fire rate not implemented yet)
+            return;
+        }
 
         // Fix: Stop current momentum before lunging (Prevents Speed Hack)
         if (this.body) {
@@ -339,6 +448,17 @@ window.addEventListener('mouseup', e => { if (joy.on) { joy.on = false; joy.x = 
 
 const bindBtn = (id, fn) => { const b = document.getElementById(id); if (b) { b.addEventListener('touchstart', e => { e.preventDefault(); fn() }); b.addEventListener('mousedown', e => { e.preventDefault(); fn() }); } }
 bindBtn('btn-attack', () => player?.attack([...enemies, ...Object.values(otherPlayers)])); bindBtn('btn-jump', () => player?.jump());
+
+window.addEventListener('mousemove', e => {
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+window.addEventListener('mousedown', e => {
+    if (gameState === 'playing' && player && player.weapon && player.weapon.type === 'gun') {
+        player.attack();
+    }
+});
+
 window.addEventListener('keydown', e => {
     if (e.key === ' ') e.preventDefault();
     keys[e.key.toLowerCase()] = true;
@@ -400,7 +520,10 @@ document.getElementById('btn-play').addEventListener('click', function (e) {
 
     // Spawn Enemies & Weapons
     enemies.length = 0; // No bots for PvP
-    weapons.length = 0; weapons.push(new Weapon('bat', 2, 2)); weapons.push(new Weapon('sword', -2, 0)); weapons.push(new Weapon('bat', 0, -4));
+    weapons.length = 0;
+    weapons.push(new Weapon('bat', 2, 2));
+    weapons.push(new Weapon('sword', -2, 0));
+    weapons.push(new Weapon('gun', 0, -4)); // Added gun
 
     // Socket
     try {
@@ -425,6 +548,11 @@ document.getElementById('btn-play').addEventListener('click', function (e) {
             socket.on('playerDied', (data) => {
                 const target = data.id === socket.id ? player : otherPlayers[data.id];
                 if (target) target.die();
+            });
+
+            socket.on('shoot', (data) => {
+                const b = new Bullet(data.x, data.y, data.z, data.vx, data.vz, data.attackerId);
+                bullets.push(b);
             });
         }
     } catch (e) { }
@@ -504,12 +632,51 @@ function loop() {
 
             enemies.forEach(b => b.update(dt, t, player.body.position));
             weapons.forEach(w => w.update());
+
+            // Update Bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                if (!b.update(dt)) {
+                    bullets.splice(i, 1);
+                    continue;
+                }
+
+                // Bullet collision check (Only owner checks to avoid double hits)
+                if (b.ownerId === (socket ? socket.id : 'player')) {
+                    const targets = [...enemies, ...Object.values(otherPlayers)];
+                    for (const target of targets) {
+                        if (target.remoteId === b.ownerId || target.isDead) continue;
+                        if (b.mesh.position.distanceTo(target.mesh.position) < 0.8) {
+                            // Hit!
+                            const force = new CANNON.Vec3(b.velocity.x * 0.5, 5, b.velocity.z * 0.5);
+                            target.takeHit(force, 2); // 2 Damage for gun
+                            if (socket && target.remoteId) {
+                                socket.emit('hitPlayer', { targetId: target.remoteId, damage: 2 });
+                            }
+                            b.destroy();
+                            bullets.splice(i, 1);
+                            break;
+                        }
+                    }
+                }
+            }
+
             if (socket) socket.emit('playerMovement', {
                 x: player.mesh.position.x,
                 y: player.mesh.position.y,
                 z: player.mesh.position.z,
                 rotation: player.mesh.rotation.y
             });
+        }
+
+        // Raycast for Mouse aiming
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObject(ground); // Simple ground check
+        if (intersects.length > 0) {
+            mouseWorldPos.copy(intersects[0].point);
+        } else {
+            // Fallback if off ground (raycast against abstract plane)
+            raycaster.ray.intersectPlane(plane, mouseWorldPos);
         }
     }
 
